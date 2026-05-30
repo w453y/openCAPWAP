@@ -232,7 +232,7 @@ CWBool CWSecurityInitSessionClient(CWSocket 		sock,
 		CWSecurityRaiseSystemError(CW_ERROR_GENERAL);
 	}
 	
-	i = BIO_ctrl_set_connected(sbio, 1, &peer);
+	i = BIO_ctrl_set_connected(sbio, &peer);
 	
 	/* BIO_ctrl(sbio, BIO_CTRL_DGRAM_MTU_DISCOVER, 0, NULL); // TO-DO (pass MTU?) */
 	/* 
@@ -569,7 +569,7 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 		return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	}
 
-	if(((*ctxPtr) = SSL_CTX_new((isClient) ? DTLSv1_client_method() : DTLSv1_server_method())) == NULL) {
+	if(((*ctxPtr) = SSL_CTX_new((isClient) ? DTLS_client_method() : DTLS_server_method())) == NULL) {
 
 		CWSecurityRaiseError(CW_ERROR_CREATING);
 	}
@@ -792,7 +792,7 @@ int CWSecurityVerifyCB(int ok, X509_STORE_CTX *ctx) {
 	 */
 	if (!preverify_ok && (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT)) {
 
-		X509_NAME_oneline(X509_get_issuer_name(ctx->current_cert), buf, 256);
+		X509_NAME_oneline(X509_get_issuer_name(X509_STORE_CTX_get_current_cert(ctx)), buf, 256);
 		CWDebugLog("issuer= %s\n", buf);
 	}
 	return preverify_ok;

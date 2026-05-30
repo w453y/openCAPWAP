@@ -64,7 +64,9 @@
 #include <sys/file.h>
 #include "wireless_copy.h"
        #include <netpacket/packet.h>
-      #include <net/ethernet.h> 
+ /* Guard: linux/if_ether.h already included, prevent struct ethhdr redefinition */
+#define _NETINET_IF_ETHER_H
+     #include <net/ethernet.h> 
        
 /* *********** NL80211 support ************** */
 #include <stdio.h>

@@ -1,0 +1,102 @@
+# ============================================================
+# Makefile.arm
+# Cross-compilation for IPQ6018 (ARM Cortex-A7, 32-bit, musl)
+# Usage: make -f Makefile.arm
+# ============================================================
+
+QSDK_STAGING   = /workdir3/qsdk/staging_dir
+TOOLCHAIN      = $(QSDK_STAGING)/toolchain-arm
+TARGET_SYSROOT = $(QSDK_STAGING)/target-arm
+
+CC  = $(TOOLCHAIN)/bin/arm-openwrt-linux-muslgnueabi-gcc
+RM  = /bin/rm -f
+
+INCLUDES  = -I$(TARGET_SYSROOT)/usr/include/libnl3
+INCLUDES += -I$(TARGET_SYSROOT)/usr/include
+INCLUDES += -I./HostapdHeaders/utils/
+INCLUDES += -I./include/
+
+LIB_PATH  = $(TARGET_SYSROOT)/usr/lib
+
+LDFLAGS   = -L$(LIB_PATH)
+LDFLAGS  += -lssl -lcrypto
+LDFLAGS  += -lnl-genl-3 -lnl-3
+LDFLAGS  += -lpthread -ldl
+LDFLAGS  += -D_REENTRANT
+
+CFLAGS    = $(INCLUDES)
+CFLAGS   += -DCW_NO_DTLS
+CFLAGS   += -DCW_NO_DTLSCWParseConfigurationUpdateRequest
+CFLAGS   += -DCW_DEBUGGING
+CFLAGS   += -DOPENSSL_NO_KRB5
+CFLAGS   += -DWRITE_STD_OUTPUT
+CFLAGS   += -fgnu89-inline
+
+WTP_OBJS  = WTP.o
+WTP_OBJS += WTPFrameReceive.o
+WTP_OBJS += WTPFreqStatsReceive.o
+WTP_OBJS += WTPStatsReceive.o
+WTP_OBJS += WTPConfigFile.o
+WTP_OBJS += WTPProtocol.o
+WTP_OBJS += WTPProtocol_User.o
+WTP_OBJS += WTPDiscoveryState.o
+WTP_OBJS += WTPJoinState.o
+WTP_OBJS += WTPConfigureState.o
+WTP_OBJS += WTPDataCheckState.o
+WTP_OBJS += WTPRunState.o
+WTP_OBJS += WTPRunStateCheck.o
+WTP_OBJS += WTPRetransmission.o
+WTP_OBJS += WTPSulkingState.o
+WTP_OBJS += WTPBinding.o
+WTP_OBJS += WTPDriverInteraction.o
+WTP_OBJS += WTPSettingsFile.o
+WTP_OBJS += WTPRadio.o
+WTP_OBJS += WTPNL80211DriverCallback.o
+WTP_OBJS += WTPNL80211Driver.o
+WTP_OBJS += WTPNL80211Netlink.o
+WTP_OBJS += WTPIEEEConfigurationState.o
+WTP_OBJS += WTPipcHostapd.o
+WTP_OBJS += CWCommon.o
+WTP_OBJS += CWConfigFile.o
+WTP_OBJS += CWErrorHandling.o
+WTP_OBJS += CWSafeList.o
+WTP_OBJS += CWList.o
+WTP_OBJS += CWLog.o
+WTP_OBJS += CWNetwork.o
+WTP_OBJS += CWProtocol.o
+WTP_OBJS += CWRandom.o
+WTP_OBJS += CWSecurity.o
+WTP_OBJS += CWOpenSSLBio.o
+WTP_OBJS += CWStevens.o
+WTP_OBJS += CWThread.o
+WTP_OBJS += CWBinding.o
+WTP_OBJS += CWVendorPayloadsWTP.o
+WTP_OBJS += CW80211ManagementFrame.o
+WTP_OBJS += CW80211InformationElements.o
+WTP_OBJS += CWTunnel.o
+WTP_OBJS += CWAVL.o
+WTP_OBJS += timerlib.o
+WTP_OBJS += ./HostapdHeaders/utils/os_unix.o
+
+WTP_NAME = WTP_arm
+
+.PHONY: all clean
+
+all: $(WTP_NAME)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+./HostapdHeaders/utils/os_unix.o: ./HostapdHeaders/utils/os_unix.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(WTP_NAME): $(WTP_OBJS)
+	$(CC) $(WTP_OBJS) $(LDFLAGS) -o $(WTP_NAME)
+	@echo "=========================================="
+	@echo " WTP_arm built successfully"
+	@file $(WTP_NAME)
+	@echo "=========================================="
+
+clean:
+	$(RM) $(WTP_NAME) $(WTP_OBJS)
+	$(RM) $(WTP_OBJS:.o=.d)
