@@ -220,8 +220,10 @@ CWBool CWParseDiscoveryRequestMessage(char *msg,
 				break;
 			*/
 			default:
-				return CWErrorRaise(CW_ERROR_INVALID_FORMAT,
-					"Unrecognized Message Element");
+				/* Skip unknown optional elements - RFC 5415 */
+				CWLog("ACDiscovery: unknown elem type=%d len=%d", elemType, elemLen);
+				completeMsg.offset += elemLen;
+				break;
 		}
 		
 		/*CWDebugLog("bytes: %d/%d", (completeMsg.offset-offsetTillMessages), controlVal.msgElemsLen);*/
