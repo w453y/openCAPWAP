@@ -238,6 +238,15 @@ void CW80211EventProcess(WTPBSSInfo * WTPBSSInfoPtr, int cmd, struct nlattr **tb
 			CWLog("ASSOCIATION RESPONSE: sending....");
 			if(!CW80211SendFrame(WTPBSSInfoPtr, 0, CW_FALSE, frameResponse, frameRespLen, &(cookie_out), 1,1))
 				CWLog("NL80211: Errore CW80211SendFrame");
+			/* Local MAC: directly register STA with kernel after assoc response */
+			if(thisSTA->radioAdd == CW_FALSE) {
+				if(nl80211CmdNewStation(WTPBSSInfoPtr, *thisSTA)) {
+					thisSTA->radioAdd = CW_TRUE;
+					CWLog("[CW80211] Station registered with kernel: radioAdd=TRUE");
+				} else {
+					CWLog("[CW80211] Failed to register station with kernel");
+				}
+			}
 		}
 		
 		CWLog("Sending response to AC");
@@ -520,7 +529,7 @@ void CWWTPAssociationRequestTimerExpiredHandler(void *arg) {
 		(info->staInfo != NULL) && 
 		info->staInfo->address != NULL && 
 		info->staInfo->state != CW_80211_STA_ASSOCIATION && 
-		info->staInfo->radioAdd != CW_FALSE
+		info->staInfo->radioAdd == CW_FALSE  /* only deauth if not yet registered */
 	)
 	{
 		radioID =  info->BSSInfo->phyInfo->radioID;
