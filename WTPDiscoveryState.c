@@ -350,6 +350,7 @@ void CWWTPPickACInterface() {
 	}
 	
 cw_pick_IPv4:
+	CWLog("CWWTPPickACInterface: IPv4AddressesCount=%d IPv4Addresses=%p", gACInfoPtr->IPv4AddressesCount, gACInfoPtr->IPv4Addresses);
 	if(gACInfoPtr->IPv4Addresses == NULL || gACInfoPtr->IPv4AddressesCount <= 0) return;
 		
 	min = gACInfoPtr->IPv4Addresses[0].WTPCount;
@@ -523,6 +524,7 @@ CWBool CWParseDiscoveryResponseMessage(char *msg,
 		unsigned short int len=0;	/* = CWProtocolRetrieve16(&completeMsg); */
 		
 		CWParseFormatMsgElem(&completeMsg,&type,&len);
+		CWLog("DiscRsp first pass: element type=%d len=%d", type, len);
 	//	CWDebugLog("Parsing Message Element: %u, len: %u", type, len);
 		
 		switch(type) {
@@ -555,8 +557,7 @@ CWBool CWParseDiscoveryResponseMessage(char *msg,
 				completeMsg.offset += len;
 				break;
 			default:
-				return CWErrorRaise(CW_ERROR_INVALID_FORMAT,
-					"Unrecognized Message Element");
+				completeMsg.offset += len;
 		}
 
 		/* CWDebugLog("bytes: %d/%d",
@@ -565,9 +566,9 @@ CWBool CWParseDiscoveryResponseMessage(char *msg,
 		 */
 	}
 	
-	if (completeMsg.offset != len) 
-		return CWErrorRaise(CW_ERROR_INVALID_FORMAT,
-				    "Garbage at the End of the Message");
+	/* if (completeMsg.offset != len) - relaxed for compatibility */
+	/*	return CWErrorRaise(CW_ERROR_INVALID_FORMAT, */
+	/* Garbage check removed for AC compatibility */
 	
 	/* actually read each interface info */
 	CW_CREATE_ARRAY_ERR(ACInfoPtr->IPv4Addresses,
