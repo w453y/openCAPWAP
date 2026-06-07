@@ -36,6 +36,13 @@ CWBool nl80211CmdGetPhyInfo(int indexPhy, struct WTPSinglePhyInfo * singlePhyInf
 }
 
 CWBool nl80211CmdSetNewInterface(int indexPhy, WTPInterfaceInfo * interfaceInfo){
+	/* qca-wifi: reuse existing interface */
+	if (if_nametoindex(interfaceInfo->ifName) != 0) {
+		CWLog("[NL80211 INFO] Interface %s already exists, reusing", interfaceInfo->ifName);
+		CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->MACaddr, MAC_ADDR_LEN, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+		getInterfaceMacAddr(interfaceInfo->ifName, interfaceInfo->MACaddr);
+		return CW_TRUE;
+	}
 		struct nl_msg *msg;
 	
 	msg = nlmsg_alloc();
@@ -46,7 +53,7 @@ CWBool nl80211CmdSetNewInterface(int indexPhy, WTPInterfaceInfo * interfaceInfo)
 	NLA_PUT_U32(msg, NL80211_ATTR_WIPHY, gPhyInterfaceIndex[indexPhy]);
 	NLA_PUT_STRING(msg, NL80211_ATTR_IFNAME, interfaceInfo->ifName);	
 	NLA_PUT_U32(msg, NL80211_ATTR_WIPHY_FREQ, gRadiosInfo.radiosInfo[indexPhy].gWTPPhyInfo.phyFrequencyInfo.frequencyList[CW_WTP_DEFAULT_RADIO_CHANNEL].frequency);
-	enum nl80211_iftype typeIf = NL80211_IFTYPE_STATION;
+	enum nl80211_iftype typeIf = NL80211_IFTYPE_AP; /* qca-wifi: AP type required */
 	NLA_PUT_U32(msg, NL80211_ATTR_IFTYPE, typeIf);
 	
 	/*
@@ -198,7 +205,7 @@ CWBool nl80211CmdSetInterfaceSTAType(char * interface){
 	int index = if_nametoindex(interface);
 	genlmsg_put(msg, 0, 0, globalNLSock.nl80211_id, 0, 0, NL80211_CMD_SET_INTERFACE, 0);
 	NLA_PUT_U32(msg, NL80211_ATTR_IFINDEX, index);
-	enum nl80211_iftype typeIf = NL80211_IFTYPE_STATION;
+	enum nl80211_iftype typeIf = NL80211_IFTYPE_AP; /* qca-wifi: AP type required */
 	NLA_PUT_U32(msg, NL80211_ATTR_IFTYPE, typeIf);
 	
 	int ret = nl80211_send_recv_cb_input(&(globalNLSock), msg, NULL, NULL);
