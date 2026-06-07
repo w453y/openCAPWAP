@@ -214,12 +214,12 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 				CWThreadMutexUnlock(&gActiveWTPsMutex);
 
 
-				if( gActiveWTPsTemp > 0 ) 
-					for(i=0; i<gMaxWTPs; i++) 
-						if(gWTPs[i].isNotFree) 
-							if (! gWTPs[i].WTPProtocolManager.name)
-								gActiveWTPsTemp -= 1;
-														
+					/* count only WTPs with names */
+					gActiveWTPsTemp = 0;
+					for(i=0; i<gMaxWTPs; i++)
+						if(gWTPs[i].isNotFree) gActiveWTPsTemp++;
+
+
 				numActiveWTPs = htonl (gActiveWTPsTemp );
 
 				memset(wtpListBuffer, 0, sizeof(wtpListBuffer));
@@ -233,10 +233,10 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 
 						if(gWTPs[i].isNotFree) {
 
-							if (! gWTPs[i].WTPProtocolManager.name)
-								continue;
+							char *_name = gWTPs[i].WTPProtocolManager.name ? gWTPs[i].WTPProtocolManager.name : "WTP";
+							/* was: continue; */
 
-							nameLength = strlen(gWTPs[i].WTPProtocolManager.name);
+							nameLength = strlen(_name);
 
 							iTosend = htonl(i);
 							nLtoSend = htonl(nameLength);
@@ -247,8 +247,8 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 							memcpy(wtpListBuffer+payload_size, &nLtoSend, sizeof(int));		  
 							payload_size += sizeof(int);
 
-							memcpy(wtpListBuffer+payload_size, gWTPs[i].WTPProtocolManager.name, strlen(gWTPs[i].WTPProtocolManager.name));		  
-							payload_size += strlen(gWTPs[i].WTPProtocolManager.name);
+							memcpy(wtpListBuffer+payload_size, _name, strlen(_name));
+							payload_size += strlen(_name);
 						}
 					}
 				}	
@@ -280,6 +280,7 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 
 				/* Check if WTP Index is valid */
 				if (!is_valid_wtp_index(wtpIndex)) {
+					CWLog("is_valid check: wtpIndex=%d gMaxWTPs=%d isNotFree=%d", wtpIndex, gMaxWTPs, wtpIndex<gMaxWTPs ? gWTPs[wtpIndex].isNotFree : -1);
 					CWLog("WTP Index non valid!");
 					goto quit_manage;
 				}
