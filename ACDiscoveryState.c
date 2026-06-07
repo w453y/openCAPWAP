@@ -155,6 +155,7 @@ CWBool CWParseDiscoveryRequestMessage(char *msg,
 	
 	/* different type */
 
+		CWLog("ParseDiscovery: messageTypeValue=%d expected=%d", controlVal.messageTypeValue, CW_MSG_TYPE_VALUE_DISCOVERY_REQUEST);
 	if(controlVal.messageTypeValue != CW_MSG_TYPE_VALUE_DISCOVERY_REQUEST)
 		return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Message is not Discovery Request as Expected");
 	

@@ -232,7 +232,7 @@ struct ifi_info* get_ifi_info(int family, int doaliases)
 			break;
 		}
 #endif	/* HAVE_SOCKADDR_SA_LEN */
-		ptr += sizeof(ifr->ifr_name) + len;	/* for next one in buffer */
+		ptr += sizeof(struct ifreq);				/* Linux: ifreq is always 40 bytes */
 
 #ifdef	HAVE_SOCKADDR_DL_STRUCT
 		/* assumes that AF_LINK precedes AF_INET or AF_INET6 */
@@ -271,7 +271,7 @@ struct ifi_info* get_ifi_info(int family, int doaliases)
 		ifi->ifi_name[IFI_NAME-1] = '\0';
 		/* If the sockaddr_dl is from a different interface, ignore it */
 		if (sdlname == NULL || strcmp(sdlname, ifr->ifr_name) != 0)
-			idx = 0;
+			idx++;
 		ifi->ifi_index = idx;
 
 		switch (ifr->ifr_addr.sa_family) {

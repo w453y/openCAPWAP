@@ -315,6 +315,11 @@ void CWACManageIncomingPacket(CWSocket sock,
 				wtpPtr = CWWTPByAddress(addrPtr, sock, dataFlag, valSessionIDPtr);
 			}
 			else {
+	{
+		struct sockaddr_in *_ca = (struct sockaddr_in*)addrPtr;
+		CWLog("Control wtpPtr lookup: from %s:%d, gWTPs[0].isNotFree=%d", inet_ntoa(_ca->sin_addr), ntohs(_ca->sin_port), gWTPs[0].isNotFree);
+		if(gWTPs[0].isNotFree) { struct sockaddr_in *_ca2=(struct sockaddr_in*)&gWTPs[0].address; CWLog("gWTPs[0].address=%s:%d", inet_ntoa(_ca2->sin_addr), ntohs(_ca2->sin_port)); }
+	}
 				wtpPtr = CWWTPByAddress(addrPtr, sock, dataFlag, NULL);
 			}	
 	}
@@ -375,7 +380,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 		}
 		CWLog("\n");	
 		
-		if(CWErr(CWParseDiscoveryRequestMessage(buf, readBytes, &seqNum, &values))) {
+		if(CWParseDiscoveryRequestMessage(buf, readBytes, &seqNum, &values)) {
 		
 			CWProtocolMessage *msgPtr;
 		
@@ -419,6 +424,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 			CW_FREE_OBJECT(msgPtr);
 		} else { 
 			/* this isn't a Discovery Request */
+		CWLog("NOT Discovery - spawning WTP thread");
 			int i;
 			CWACThreadArg *argPtr;
 			
@@ -510,12 +516,10 @@ void CWACManageIncomingPacket(CWSocket sock,
 			CW_CREATE_OBJECT_SIZE_ERR(pData, readBytes, { CWLog("Out Of Memory"); return; });
 			memcpy(pData, buf, readBytes);
 
-			CWLockSafeList(gWTPs[i].packetReceiveList);
 			CWAddElementToSafeListTailwitDataFlag(gWTPs[i].packetReceiveList,
  						   pData,
 						   readBytes,
 						  dataFlag);
-			CWUnlockSafeList(gWTPs[i].packetReceiveList);
 		}
 	}
 }
@@ -531,6 +535,9 @@ __inline__ CWWTPManager *CWWTPByAddress(CWNetworkLev4Address *addressPtr, CWSock
 	
 	if(addressPtr == NULL) return NULL;
 	CWThreadMutexLock(&gWTPsMutex);
+	{
+	}
+	CWLog("CWWTPByAddress: gMaxWTPs=%d dataFlag=%d", gMaxWTPs, dataFlag);
 	for(i = 0; i < gMaxWTPs; i++) {
 		
 		/*
@@ -548,7 +555,7 @@ __inline__ CWWTPManager *CWWTPByAddress(CWNetworkLev4Address *addressPtr, CWSock
 				(
 					(dataFlag == CW_FALSE) && 
 					(!sock_cmp_addr((struct sockaddr*)addressPtr, (struct sockaddr*)&(gWTPs[i].address),sizeof(CWNetworkLev4Address))) &&
-					(!sock_cmp_port((struct sockaddr*)addressPtr, (struct sockaddr*)&(gWTPs[i].address), sizeof(CWNetworkLev4Address)))
+					/* port not checked - WTP uses different port for Join vs Discovery */ CW_TRUE
 				)
 				||
 				(
@@ -678,6 +685,9 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
  	gWTPs[i].isRetransmitting = CW_FALSE;
 	gWTPs[i].retransmissionCount = 0;
 		
+	/* Re-associate safe list with new mutex/condition after recreating them */
+	CWSetMutexSafeList(gWTPs[i].packetReceiveList, &gWTPs[i].interfaceMutex);
+	CWSetConditionSafeList(gWTPs[i].packetReceiveList, &gWTPs[i].interfaceWait);
 	CWResetWTPProtocolManager(&(gWTPs[i].WTPProtocolManager));
 
 	CWLog("New Session");

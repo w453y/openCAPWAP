@@ -60,6 +60,7 @@ CWBool CWSaveJoinRequestMessage(CWProtocolJoinRequestValues *joinRequest,
 
 CWBool ACEnterJoin(int WTPIndex, CWProtocolMessage *msgPtr)
 {	
+	CWLog("ACEnterJoin called for WTPIndex=%d", WTPIndex);
 	int seqNum;
 	CWProtocolJoinRequestValues joinRequest;
 	CWList msgElemList = NULL;
@@ -318,6 +319,8 @@ CWBool CWParseJoinRequestMessage(char *msg,
 		return CW_FALSE;
 
 	/* different type */
+		CWLog("DEBUG ACEnterJoin: messageTypeValue=%d, expected JOIN_REQUEST=%d", controlVal.messageTypeValue, CW_MSG_TYPE_VALUE_JOIN_REQUEST);
+		CWLog("DEBUG ACEnterJoin: messageTypeValue=%d, expected JOIN_REQUEST=%d", controlVal.messageTypeValue, CW_MSG_TYPE_VALUE_JOIN_REQUEST);
 	if(controlVal.messageTypeValue != CW_MSG_TYPE_VALUE_JOIN_REQUEST)
 		return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Message is not Join Request as Expected");
 	

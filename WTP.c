@@ -600,6 +600,7 @@ int main (int argc, const char * argv[]) {
 			exit(1);
 		}
 		fclose(stdout);
+		open("/dev/null", 0); /* occupy fd 1 to prevent fopen grabbing it */
 	}	
 
 	
@@ -623,6 +624,8 @@ int main (int argc, const char * argv[]) {
 	}
 	
 	//Elena Agostini - 05/2014
+	/* NULL guard: wtpLogFile may be unset if settings parse failed */
+	if(wtpLogFile == NULL) { wtpLogFile = "/tmp/wtp_default.log"; }
 	CWLogInitFile(wtpLogFile);
 	strncpy(gLogFileName, wtpLogFile, strlen(wtpLogFile));
 	

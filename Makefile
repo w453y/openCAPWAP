@@ -51,6 +51,7 @@ INC_PATH = /usr/include/libnl3
 #LDFLAGS = ./static/libssl.a ./static/libcrypto.a -lpthread -ldl -D_REENTRANT
 
 #CFLAGS =  -Wall -g -O0 -D_REENTRANT  
+CFLAGS += -fcommon -fgnu89-inline
 CFLAGS += -DCW_NO_DTLS -DCW_NO_DTLSCWParseConfigurationUpdateRequest
 #CFLAGS += -DSPLIT_MAC
 
@@ -65,15 +66,19 @@ OPENSSL_INCLUDE = -I./include/  #Openssl include files
 
 # Capwap Debugging
 
-CFLAGS += -DCW_DEBUGGING 
+CFLAGS += -fcommon -fgnu89-inline
+#CFLAGS += -DCW_DEBUGGING 
 #CFLAGS += -DWRITE_STD_OUTPUT
 #CFLAGS += -DSOFTMAC
+CFLAGS += -fcommon -fgnu89-inline
 CFLAGS += -DOPENSSL_NO_KRB5
 
 #OpenSSL inc files path
 #CFLAGS += $(OPENSSL_INCLUDE)  
 
+CFLAGS += -fcommon -fgnu89-inline
 CFLAGS += -I/usr/include/libnl3
+CFLAGS += -fcommon -fgnu89-inline
 CFLAGS += -I./HostapdHeaders/utils/
 RM = /bin/rm -f 
 

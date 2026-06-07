@@ -166,6 +166,8 @@ void CWACInit() {
 	CWNetworkLev4Address *addresses = NULL;
 	struct sockaddr_in *IPv4Addresses = NULL;
 	
+	gEnabledLog = 1;
+	gMaxLogFileSize = 30000000;
 	CWLogInitFile(AC_LOG_FILE_NAME);
 
 	#ifndef CW_SINGLE_THREAD
@@ -238,7 +240,7 @@ void CWACInit() {
 		}
 	}
 #endif
-	CW_FREE_OBJECTS_ARRAY(gMulticastGroups, gMulticastGroupsCount);
+	if(gMulticastGroupsCount > 0 && gMulticastGroups != NULL) { CW_FREE_OBJECTS_ARRAY(gMulticastGroups, gMulticastGroupsCount); }
 
 	for(i = 0; i < gMaxWTPs; i++) {
 		gWTPs[i].isNotFree = CW_FALSE;

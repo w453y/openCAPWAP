@@ -158,7 +158,7 @@ CWBool CWNetworkInitSocketServerMultiHomed(CWMultiHomedSocket *sockPtr,
 	for (ifihead = ifi = get_ifi_info((gNetworkPreferredFamily == CW_IPv6) ? AF_INET6 : AF_INET, 1); ifi != NULL; ifi = ifi->ifi_next) { 
 #else
 	/* for each network interface... */
-	for (ifihead = ifi = get_ifi_info((gNetworkPreferredFamily == CW_IPv6) ? AF_INET6 : AF_INET, 0); ifi != NULL; ifi = ifi->ifi_next) {
+	for (ifihead = ifi = get_ifi_info((gNetworkPreferredFamily == CW_IPv6) ? AF_INET6 : AF_INET, 1); ifi != NULL; ifi = ifi->ifi_next) {
 #endif
 		/* bind a unicast address */
 		if((sock = socket(ifi->ifi_addr->sa_family, SOCK_DGRAM, 0)) < 0) {
@@ -345,7 +345,7 @@ CWBool CWNetworkInitSocketServerMultiHomed(CWMultiHomedSocket *sockPtr,
 #ifdef CW_DEBUGGING
 		for (ifihead = ifi = get_ifi_info(AF_INET, 1); ifi != NULL; ifi = ifi->ifi_next) {
 #else
-		for (ifihead = ifi = get_ifi_info(AF_INET, 0); ifi != NULL; ifi = ifi->ifi_next) {
+		for (ifihead = ifi = get_ifi_info(AF_INET, 1); ifi != NULL; ifi = ifi->ifi_next) {
 #endif
 			CWMultiHomedInterface *s = CWNetworkGetInterfaceAlreadyStored(interfaceList, ifi->ifi_index);
 			

@@ -128,6 +128,7 @@ CWBool CWConfigFileDestroyLib() {
 	gACSWVersion = gConfigValues[1].value.int_value;
 	gLimit = gConfigValues[2].value.int_value;
 	gMaxWTPs = gConfigValues[3].value.int_value;
+	CWLog("DEBUG: gMaxWTPs set to %d from gConfigValues[3]=%d", gMaxWTPs, gConfigValues[3].value.int_value);
 
 	/*
 	 * Elena Agostini - 02/2014

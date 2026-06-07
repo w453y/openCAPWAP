@@ -36,7 +36,7 @@
  *******************************************************************************************/
 
 #include "CWCommon.h"
-//#define WRITE_STD_OUTPUT 1 
+#define WRITE_STD_OUTPUT 1 
 
 #ifdef DMALLOC
 #include "../dmalloc-5.5.0/dmalloc.h"
