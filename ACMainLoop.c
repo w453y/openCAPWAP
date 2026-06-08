@@ -427,6 +427,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 			CW_FREE_OBJECT(msgPtr);
 		} else { 
 			/* this isn't a Discovery Request */
+			if (dataFlag == CW_TRUE) { CWLog("Ignoring data packet from unknown WTP"); return; }
 		CWLog("NOT Discovery - spawning WTP thread");
 			int i;
 			CWACThreadArg *argPtr;

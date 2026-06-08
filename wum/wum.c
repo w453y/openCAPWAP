@@ -126,6 +126,8 @@ int main(int argc, char *argv[])
 
 	/* Connect to server and get WTPs list */
 	acserver = ACServerConnect(acserver_address, acserver_port);
+	if (wtpIds) wtpIds = strdup(wtpIds);
+	if (wtpNames) wtpNames = strdup(wtpNames);
 	wtpList = ACServerWTPList(acserver, &nWTPs);
 	
 	/* Execute command */
@@ -223,6 +225,7 @@ int count_tokens(char *str1, char *str2)
 int *get_id_list(char *wtpIds, char *wtpNames, int *n)
 {
 	char *token, *ptr;
+	char *saveptr = NULL;
 	int *ret = NULL;
 	int i;
 	
@@ -239,14 +242,15 @@ int *get_id_list(char *wtpIds, char *wtpNames, int *n)
 	
 	if (wtpIds != NULL) {
 		/* read ids */
-		token = (char*)strtok(wtpIds, ",");
+		token = (char*)strtok_r(wtpIds, ",", &saveptr);
+		if (token == NULL) { free(ret); return NULL; }
 		ret[0] = atoi(token);
 
 		if (ret[0] == -1) 
 			return all_WTPs();
 		
 		for (i = 1; i < *n; i++)
-			ret[i] = atoi( (const char*)strtok(NULL, ",") );
+			ret[i] = atoi( (const char*)strtok_r(NULL, ",", &saveptr) );
 		
 	} else {	
 		/* read names and convert into ids */
@@ -254,12 +258,12 @@ int *get_id_list(char *wtpIds, char *wtpNames, int *n)
 			int id;
 
 			if (i == 0) {
-				token = (char*)strtok(wtpNames, ",");
+				token = (char*)strtok_r(wtpNames, ",", &saveptr);
 				if (strcmp(token, "all") == 0)
 					return all_WTPs();
 				
 			} else {
-				token = (char*)strtok(NULL, ",");
+				token = (char*)strtok_r(NULL, ",", &saveptr);
 			}
 			
 			if ((id = WTP_name2id(token)) == -1) {
@@ -371,27 +375,19 @@ void do_cancel_cmd(int acserver, char *wtpIds, char *wtpNames)
  */
 void do_wlan_add_cmd(int acserver, char *wtpIds, char *wtpNames, char * ssid, char * radioID, char * wlanID, char * tunnel)
 {
-	int *wtps, n, i;
 	struct version_info v_info;
+	int wtpId;
 
-	/* WTP work list */
-	wtps = get_id_list(wtpIds, wtpNames, &n);
-	
-	if (wtps == NULL) {
+	if (wtpIds == NULL && wtpNames == NULL) {
 		fprintf(stderr, "Either a list of wtp ids or wtp names must be specified!\n");
 		return;
 	}
-	
-	if(n == 0)
-	{
-		fprintf(stderr, "Currently, there aren't associated wtps with AC\n");
-		return;
-	}
-	
-	for (i = 0; i < n; i++) {
-		printf("invio a wtp %d\n", i);
-		WUMWTPwlanAdd(acserver, wtps[i], ssid, radioID, wlanID, tunnel, &v_info);
-	}	
+
+	wtpId = (wtpIds != NULL) ? atoi(wtpIds) : WTP_name2id(wtpNames);
+	if (wtpId < 0) { fprintf(stderr, "Invalid WTP id\n"); return; }
+
+	printf("Adding WLAN to WTP %d\n", wtpId);
+	WUMWTPwlanAdd(acserver, wtpId, ssid, radioID, wlanID, tunnel, &v_info);
 }
 
 /*

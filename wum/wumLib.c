@@ -218,7 +218,7 @@ int WUMWTPwlanAdd(int acserver, int wtpId, char * ssid, char * radioID, char * w
 		return ERROR;
 	}
 	
-	WUM_INIT_REQ_MSG(msg, strlen(ssid)+strlen(radioID)+strlen(wlanID)+3);
+	WUM_INIT_REQ_MSG(msg, strlen(ssid)+strlen(radioID)+strlen(wlanID)+(tunnel?strlen(tunnel):1)+4);
 	msg.cmd_msg = CONF_UPDATE_MSG;
 	msg.msg_elem = MSG_ELEMENT_TYPE_ADD_WLAN;
 	msg.wtpId = wtpId;
