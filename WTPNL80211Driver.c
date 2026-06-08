@@ -41,6 +41,9 @@ CWBool nl80211CmdSetNewInterface(int indexPhy, WTPInterfaceInfo * interfaceInfo)
 		CWLog("[NL80211 INFO] Interface %s already exists, reusing", interfaceInfo->ifName);
 		CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->MACaddr, MAC_ADDR_LEN, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 		getInterfaceMacAddr(interfaceInfo->ifName, interfaceInfo->MACaddr);
+		interfaceInfo->realWlanID = if_nametoindex(interfaceInfo->ifName);
+		CWLog("[NL80211 INFO] reused ifindex=%d", interfaceInfo->realWlanID);
+
 		return CW_TRUE;
 	}
 		struct nl_msg *msg;

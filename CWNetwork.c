@@ -166,6 +166,10 @@ CWBool CWNetworkInitSocketClient(CWSocket *sockPtr, CWNetworkLev4Address *addrPt
 		CWNetworkRaiseSystemError(CW_ERROR_CREATING);
 	}
 
+	/* SO_REUSEADDR: allow rapid WTP restarts */
+	if(setsockopt(*sockPtr, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
+		CWLog("Warning: SO_REUSEADDR failed");
+
 	memset(&sockaddr, 0, addrlen);
 #ifdef IPv6
 	sockaddr.sin6_family = (gNetworkPreferredFamily == CW_IPv4) ? AF_INET : AF_INET6;
@@ -296,6 +300,9 @@ CWBool CWNetworkInitSocketClientWithPort(CWSocket *sockPtr, CWNetworkLev4Address
 #endif
 		CWNetworkRaiseSystemError(CW_ERROR_CREATING);
 	}
+
+	/* SO_REUSEADDR for client socket */
+	setsockopt(*sockPtr, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
 	memset(&sockaddr, 0, addrlen);
 #ifdef IPv6

@@ -88,8 +88,8 @@ extern struct nl80211SocketUnit globalNLSock;
 #define MAC80211_BEACON_BODY_MANDATORY_MIN_LEN 12
 #define MAC80211_MAX_PROBERESP_LEN 768
 
-#define WTP_NAME_WLAN_PREFIX "WTPWLan"
-#define WTP_NAME_WLAN_PREFIX_LEN 7
+#define WTP_NAME_WLAN_PREFIX "ath"
+#define WTP_NAME_WLAN_PREFIX_LEN 3
 #define WTP_NAME_WLAN_SUFFIX_LEN 2
 
 /* ++++++++ IE Frame Management ++++++++++ */

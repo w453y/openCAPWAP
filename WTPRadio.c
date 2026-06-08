@@ -169,7 +169,7 @@ CWBool CWWTPCreateNewWlanInterface(int radioIndex, int wlanIndex)//WTPInterfaceI
 	
 	//Create ifname: WTPWlan+radioIndex+wlanIndex+WTPpid
 	CW_CREATE_ARRAY_CALLOC_ERR(gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.interfaces[wlanIndex].ifName, (WTP_NAME_WLAN_PREFIX_LEN+WTP_NAME_WLAN_SUFFIX_LEN+1), char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
-	snprintf(gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.interfaces[wlanIndex].ifName, (WTP_NAME_WLAN_PREFIX_LEN+WTP_NAME_WLAN_SUFFIX_LEN+1), "%s%d%d", WTP_NAME_WLAN_PREFIX, gPhyInterfaceIndex[radioIndex], wlanIndex);
+	snprintf(gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.interfaces[wlanIndex].ifName, (WTP_NAME_WLAN_PREFIX_LEN+WTP_NAME_WLAN_SUFFIX_LEN+1), "%s%d", WTP_NAME_WLAN_PREFIX, wlanIndex+1); /* qca-wifi: use ath1 naming */
 	
 	if(!nl80211CmdSetNewInterface(radioIndex, &(gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.interfaces[wlanIndex])))
 		return CW_FALSE;
@@ -253,19 +253,21 @@ CWBool CWWTPDeleteBSS(int radioIndex, int wlanIndex)
 
 CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * interfaceInfo)
 {   
-	if(interfaceInfo->typeInterface == CW_AP_MODE)
-		return CW_TRUE;
+	/* qca-wifi: even if already AP mode, still configure SSID via nl80211CmdStartAP */
+	/* was: return CW_TRUE; */
 	
 	if(interfaceInfo == NULL)
 		return CW_FALSE;
 		
-	if(!nl80211CmdSetInterfaceAPType(interfaceInfo->ifName))
-		return CW_FALSE;
+	/* qca-wifi: skip SetInterfaceAPType - ath1 already AP, nl80211 rejects mode change */
+	/* 		return CW_FALSE; */
 
 	//BSSID == AP Address
 	CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->BSSID, ETH_ALEN+1, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	CW_COPY_MEMORY(interfaceInfo->BSSID, interfaceInfo->MACaddr, ETH_ALEN);
 
+	/* qca-wifi: skip channel/AP config for reused NSS-registered interfaces */
+	if(interfaceInfo->realWlanID == 0) {
 	if(!nl80211CmdSetChannelInterface(interfaceInfo->ifName, gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.phyFrequencyInfo.frequencyList[CW_WTP_DEFAULT_RADIO_CHANNEL].frequency))
 		return CW_FALSE;
 
@@ -277,14 +279,21 @@ CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * int
 
 	if(!nl80211CmdStartAP(interfaceInfo))
 		return CW_FALSE;
+	} /* end qca-wifi skip block */
 
 	int tmpIndexif = if_nametoindex(interfaceInfo->ifName);
-	if(!netlink_send_oper_ifla(globalNLSock.sockNetlink, tmpIndexif, -1, IF_OPER_UP))
+	CWLog("[DBG] calling netlink_send_oper_ifla ifindex=%d", tmpIndexif);
+	if(!netlink_send_oper_ifla(globalNLSock.sockNetlink, tmpIndexif, -1, IF_OPER_UP)) {
+		CWLog("[DBG] netlink_send_oper_ifla FAILED");
 		return CW_FALSE;
+	}
 			
 	  
-	if(!nl80211_set_bss(interfaceInfo, radioIndex, 0, 0))
+	CWLog("[DBG] calling nl80211_set_bss");
+	if(!nl80211_set_bss(interfaceInfo, radioIndex, 0, 0)) {
+		CWLog("[DBG] nl80211_set_bss FAILED");
 		return CW_FALSE;
+	}
 	 
 	/* int tmpChannel = -1;
 	 nl80211CmdGetChannelInterface(interfaceInfo->ifName, &(tmpChannel));
@@ -295,10 +304,22 @@ CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * int
 	WTPGlobalBSSList[BSSId]->active = CW_TRUE;
 	
 	//Register mgmt functions
-	if(CW80211SetAPTypeFrame(interfaceInfo, WTPGlobalBSSList[BSSId]) < 0)
+	CWLog("[DBG] calling CW80211SetAPTypeFrame");
+	if(CW80211SetAPTypeFrame(interfaceInfo, WTPGlobalBSSList[BSSId]) < 0) {
+		CWLog("[DBG] CW80211SetAPTypeFrame FAILED");
 		return CW_FALSE;
+	}
 	
 	CWLog("AP created on interface on interface %s", interfaceInfo->ifName);
+	/* qca-wifi: set SSID via UCI and restart wifi to restore NSS registration */
+	{
+		char cmd[256];
+		snprintf(cmd, sizeof(cmd), "uci set wireless.@wifi-iface[1].ssid='%s' && uci commit wireless && wifi down && wifi up", interfaceInfo->SSID);
+		CWLog("[qca-wifi] Restarting wifi with SSID: %s", interfaceInfo->SSID);
+		system(cmd);
+		sleep(3);
+	}
+
 	
 	interfaceInfo->typeInterface = CW_AP_MODE;
 
