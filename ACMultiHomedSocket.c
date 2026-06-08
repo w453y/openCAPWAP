@@ -613,10 +613,10 @@ CWBool CWNetworkUnsafeMultiHomed(CWMultiHomedSocket *sockPtr,
 	}
 
 //Elena Agostini: unique AC Tap Interface
-	if(ACTap_FD)
+	if(ACTap_FD > 0)
 	{
 		FD_SET(ACTap_FD, &fset);
-		max = ACTap_FD;
+                if(ACTap_FD > max) max = ACTap_FD;
 	}
 
 	while(select(max+1, &fset, NULL, NULL, NULL) < 0) {

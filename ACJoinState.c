@@ -321,6 +321,10 @@ CWBool CWParseJoinRequestMessage(char *msg,
 	/* different type */
 		CWLog("DEBUG ACEnterJoin: messageTypeValue=%d, expected JOIN_REQUEST=%d", controlVal.messageTypeValue, CW_MSG_TYPE_VALUE_JOIN_REQUEST);
 		CWLog("DEBUG ACEnterJoin: messageTypeValue=%d, expected JOIN_REQUEST=%d", controlVal.messageTypeValue, CW_MSG_TYPE_VALUE_JOIN_REQUEST);
+		if(controlVal.messageTypeValue == CW_MSG_TYPE_VALUE_ECHO_REQUEST) {
+			CWLog("ACEnterJoin: ignoring stale Echo Request, waiting for Join");
+			return CW_FALSE;
+		}
 	if(controlVal.messageTypeValue != CW_MSG_TYPE_VALUE_JOIN_REQUEST)
 		return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Message is not Join Request as Expected");
 	

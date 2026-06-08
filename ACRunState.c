@@ -1344,6 +1344,12 @@ CWLog("Prima di CWACSendAcknowledgedPacket");
 			 * We have an unexpected request and we have to send
 			 * a corresponding response containing a failure result code
 			 */
+				if(controlVal.messageTypeValue == CW_MSG_TYPE_VALUE_DISCOVERY_REQUEST) {
+					CWLog("Run State: ignoring Discovery Request from reconnecting WTP");
+					gWTPs[WTPIndex].isRequestClose = CW_TRUE;
+					gWTPs[WTPIndex].isNotFree = CW_FALSE;
+					break;
+				}
 			CWDebugLog("--> Not valid Request in Run State... we send a failure Response");
 			
 			if(!(CWAssembleUnrecognizedMessageResponse(&messages,
@@ -1680,6 +1686,7 @@ CWBool CWSaveConfigurationUpdateResponseMessage(CWProtocolResultCode resultCode,
 	 */
 	if (closeWTPManager) {
 		gWTPs[WTPIndex].isRequestClose = CW_TRUE;
+					gWTPs[WTPIndex].isNotFree = CW_FALSE;
 		CWSignalThreadCondition(&gWTPs[WTPIndex].interfaceWait);
 	}
 

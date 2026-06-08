@@ -367,12 +367,14 @@ void CWACManageIncomingPacket(CWSocket sock,
 			
 		CWDiscoveryRequestValues values;
 		
-		if(!CWErr(CWThreadMutexLock(&gActiveWTPsMutex))) 
-			exit(1);
+		if(!CWErr(CWThreadMutexLock(&gActiveWTPsMutex)))  {
+			CWLog("WARNING: gActiveWTPsMutex lock failed in incoming packet handler"); return;
+		}
 			
 		tmp = gActiveWTPs;
 		CWThreadMutexUnlock(&gActiveWTPsMutex);
 
+			CWLog("unknown WTP path: gActiveWTPs=%d gMaxWTPs=%d", gActiveWTPs, gMaxWTPs);
 		if(gActiveWTPs >= gMaxWTPs) {
 
 			CWLog("Too many WTPs");
@@ -380,6 +382,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 		}
 		CWLog("\n");	
 		
+			CWLog("Attempting CWParseDiscoveryRequestMessage, readBytes=%d", readBytes);
 		if(CWParseDiscoveryRequestMessage(buf, readBytes, &seqNum, &values)) {
 		
 			CWProtocolMessage *msgPtr;
@@ -538,6 +541,7 @@ __inline__ CWWTPManager *CWWTPByAddress(CWNetworkLev4Address *addressPtr, CWSock
 	{
 	}
 	CWLog("CWWTPByAddress: gMaxWTPs=%d dataFlag=%d", gMaxWTPs, dataFlag);
+	if(gWTPs[0].isNotFree || gWTPs[0].isRequestClose) CWLog("slot0: isNotFree=%d isRequestClose=%d", gWTPs[0].isNotFree, gWTPs[0].isRequestClose);
 	for(i = 0; i < gMaxWTPs; i++) {
 		
 		/*
@@ -548,7 +552,7 @@ __inline__ CWWTPManager *CWWTPByAddress(CWNetworkLev4Address *addressPtr, CWSock
 			CWLog("++++ CWWTPByAddress: NUOVO WTP %s:%d, corrente WTP: %s:%d", inet_ntoa(tmpAdd1->sin_addr), ntohs(tmpAdd1->sin_port), inet_ntoa(tmpAdd2->sin_addr), ntohs(tmpAdd2->sin_port));
 		}
 		*/
-		if(gWTPs[i].isNotFree && 
+		if(gWTPs[i].isNotFree && (gWTPs[i].isRequestClose == CW_FALSE) && 
 		   &(gWTPs[i].address) != NULL 
 		   && 
 		  (
@@ -1114,6 +1118,7 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 }
 
 void _CWCloseThread(int i) {
+	CWLog("_CWCloseThread called from thread %lx", (unsigned long)pthread_self());
 
  	CWThreadSetSignals(SIG_BLOCK, 2, 
 			   CW_SOFT_TIMER_EXPIRED_SIGNAL, 
@@ -1125,7 +1130,7 @@ void _CWCloseThread(int i) {
 	/**** ACInterface ****/
 
 	if(!CWErr(CWThreadMutexLock(&gActiveWTPsMutex))) 
-		exit(1);
+		CWLog("WARNING: gActiveWTPsMutex lock failed, continuing"); goto skip_active_wtp_update;
 	
 	gInterfaces[gWTPs[i].interfaceIndex].WTPCount--;
 	gActiveWTPs--;
@@ -1133,6 +1138,7 @@ void _CWCloseThread(int i) {
 	CWUseSockNtop( ((struct sockaddr*)&(gInterfaces[gWTPs[i].interfaceIndex].addr)),
 			CWLog("Remove WTP on Interface %s (%d)", str, gWTPs[i].interfaceIndex););
 
+	skip_active_wtp_update:
 	CWThreadMutexUnlock(&gActiveWTPsMutex);
 	
 	CWDebugLog("Close Thread: %08x", (unsigned int)CWThreadSelf());
@@ -1190,7 +1196,7 @@ void _CWCloseThread(int i) {
 	CWThreadMutexUnlock(&(mutexAvlTree));
 //--
 	
-	CWExitThread();
+	CWLog("_CWCloseThread done"); pthread_detach(pthread_self()); pthread_exit(NULL);
 }
 
 void CWCloseThread() {
@@ -1229,6 +1235,7 @@ void CWCriticalTimerExpiredHandler(int arg) {
 
 	/* Request close thread */
 	gWTPs[*iPtr].isRequestClose = CW_TRUE;
+	gWTPs[*iPtr].isNotFree = CW_FALSE; /* immediately free slot on close */
 	CWSignalThreadCondition(&gWTPs[*iPtr].interfaceWait);
 }
 
