@@ -631,7 +631,7 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 	} else { 
 		/* pre-shared keys */
 		printf("OpenSSL PrivateSharedKey not ready\n");
-		exit(0);
+		CWLog("OpenSSL PSK not ready, continuing without DTLS"); return CW_FALSE;
 		/*
 		useCertificate = CW_FALSE;
 		SSL_CTX_set_cipher_list( (*ctxPtr), "TLSv1");	// current implementation of PSK for OpenSSL doesn't support CAPWAP's cipher.

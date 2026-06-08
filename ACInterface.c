@@ -753,14 +753,18 @@ CW_THREAD_RETURN_TYPE CWInterface(void* arg)
 		CWLog("Error on socket creation on Interface");
 		return NULL;
 	}
+	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEPORT, &optValue, sizeof(int));
 	
 	/************************************
 	 * Binding socket and Listen call	*
 	 ************************************/
 	
+	retry_bind:
 	if (  bind(listen_sock, (struct sockaddr *) &servaddr, sizeof(struct sockaddr_in)) < 0 ) {
-		CWLog("Error on Binding");
-		return NULL;
+		CWLog("Error on Binding port 1235, retrying...");
+		sleep(2);
+		close(listen_sock);
+		goto retry_bind;
 	}
 	
 	if ( listen(listen_sock, MAX_APPS_CONNECTED_TO_AC) < 0 ) {

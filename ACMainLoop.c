@@ -148,7 +148,7 @@ void CWACEnterMainLoop() {
 		if(!CWErr(CWNetworkUnsafeMultiHomed(&gACSocket, 
 						    CWACManageIncomingPacket,
 						    CW_FALSE)))
-			exit(1);
+			{ CWLog("CWNetworkUnsafeMultiHomed error, recovering..."); continue; }
 	}
 }
 
