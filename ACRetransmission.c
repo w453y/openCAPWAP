@@ -65,6 +65,7 @@ CWBool CWACSendFragments(int WTPIndex) {
 	if(gWTPs[WTPIndex].messages == NULL) return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	
 	for(i = 0; i < gWTPs[WTPIndex].messagesCount; i++) {
+		CWLog("[SEND] i=%d session=%p messagesCount=%d", i, gWTPs[WTPIndex].session, gWTPs[WTPIndex].messagesCount);
 #ifdef CW_NO_DTLS
 		if(!CWNetworkSendUnsafeUnconnected(	gWTPs[WTPIndex].socket, 
 							&gWTPs[WTPIndex].address, 

@@ -104,7 +104,7 @@ void CWErrorPrint(CWErrorHandlingInfo *infoPtr, const char *desc, const char *fi
 	if(infoPtr == NULL) return;
 	
 	if(infoPtr->message != NULL && infoPtr->message[0]!='\0') {
-		CWLog("Error: %s. %s .", desc, infoPtr->message);
+		CWLog("Error: %s. %s .", desc ? desc : "?", (infoPtr->message && infoPtr->message[0]) ? infoPtr->message : "?");
 	} else {
 		CWLog("Error: %s", desc);
 	}

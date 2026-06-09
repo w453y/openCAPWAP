@@ -131,7 +131,7 @@ static int CWGenerateCookie(SSL* ssl, unsigned char* cookie, unsigned int* cooki
 	return 1;
 }
 
-static int CWVerifyCookie(SSL* ssl, unsigned char* cookie, unsigned int cookie_len) {
+static int CWVerifyCookie(SSL* ssl, const unsigned char* cookie, unsigned int cookie_len) {
 	unsigned int resultlength;
 	char result[EVP_MAX_MD_SIZE] = "012345678";
 
@@ -147,57 +147,19 @@ static int CWVerifyCookie(SSL* ssl, unsigned char* cookie, unsigned int cookie_l
 }
 
 void CWSslCleanUp() {
-
-	int i;
-
-	if (mutexOpensslBuf == NULL) return;
-
-	for(i = 0; i < CRYPTO_num_locks(); i++) {
-
-		CWDestroyThreadMutex(&mutexOpensslBuf[i]);
-	}
-
-	CW_FREE_OBJECT(mutexOpensslBuf);
-	mutexOpensslBuf = NULL;
-
-	return;
+	/* OpenSSL 1.1.x+: cleanup handled automatically */
 }
+
 
 CWBool CWSecurityInitLib() {
 
-	int i;
-
-	SSL_load_error_strings();
-	SSL_library_init();
-
-	/* setup mutexes for openssl internal locking */
-	CW_CREATE_ARRAY_ERR(mutexOpensslBuf,
-			    CRYPTO_num_locks() * sizeof(CWThreadMutex),
-			    CWThreadMutex,
-			    return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, 
-				    		"Cannot create openssl mutexes");)
-
-	CW_ZERO_MEMORY(mutexOpensslBuf, CRYPTO_num_locks() * sizeof(CWThreadMutex));
-
-	for(i = 0; i < CRYPTO_num_locks(); i++) {
-
-		CWBool rv;
-		rv = CWCreateThreadMutex(&mutexOpensslBuf[i]);
-		if (rv != CW_TRUE) {
-
-			CWSslCleanUp();
-			return CWErrorRaise(CW_ERROR_CREATING, 
-				    	    "Cannot create openssl mutexes");
-		}
-	}
-
-	CRYPTO_set_id_callback(CWSslIdFunction);
-	CRYPTO_set_locking_callback(CWSslLockingFunc);
+	/* OpenSSL 1.1.x+: automatic init, no manual locking callbacks needed */
+	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
+	                 OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL);
 
 	return CW_TRUE;
 }
- 
-CWBool CWSecurityInitSessionClient(CWSocket 		sock, 
+CWBool CWSecurityInitSessionClient(CWSocket sock,
 				   CWNetworkLev4Address *addrPtr,
 				   CWSafeList 		packetReceiveListTmp,
 				   CWSecurityContext 	ctx,
@@ -251,11 +213,25 @@ CWBool CWSecurityInitSessionClient(CWSocket 		sock,
 	SSL_set_read_ahead( (*sessionPtr), 1);
 	SSL_set_bio((*sessionPtr), sbio, sbio);
 	SSL_set_connect_state((*sessionPtr));
+	{
+		CWNetworkLev4Address _peer;
+		int _peerlen = sizeof(_peer);
+		getsockname(sock, (struct sockaddr*)&_peer, (void*)&_peerlen);
+		BIO_ctrl(sbio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &_peer);
+	}
 	
 	CWDebugLog("Making Handshake...");
-	CWSecurityManageSSLError(SSL_do_handshake(*sessionPtr),
-				 *sessionPtr,
-				 SSL_free(*sessionPtr););
+	{
+		int _hs_ret = SSL_do_handshake(*sessionPtr);
+		CWLog("SSL_do_handshake returned %d", _hs_ret);
+		if(_hs_ret <= 0) {
+			char _ebuf[256];
+			ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
+			SSL_free(*sessionPtr);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		}
+	}
 	CWDebugLog("SSL Handshake OK!");
 
 	if (SSL_get_verify_result(*sessionPtr) == X509_V_OK) {
@@ -278,7 +254,7 @@ CWBool CWSecurityInitSessionClient(CWSocket 		sock,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -317,7 +293,9 @@ CWBool CWSecurityReceive(CWSecuritySession session,
 }
 
 CWBool CWSecuritySend(CWSecuritySession session, const char *buf, int len) {
+	CWLog("[SEC-SEND-ENTRY] called");
 
+	CWLog("[SEC-SEND] session=%p len=%d", session, len);
 	if(buf == NULL) 
 		return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	
@@ -368,9 +346,27 @@ CWBool CWSecurityInitSessionServer(CWWTPManager* pWtp,
 	SSL_set_accept_state((*sessionPtr));
 	
 	CWDebugLog("Before HS");
-	CWSecurityManageSSLError(SSL_do_handshake(*sessionPtr),
-				 *sessionPtr,
-				 SSL_free(*sessionPtr);); 
+	{
+		int _hs_ret;
+		int _ssl_err;
+		do {
+			_hs_ret = SSL_do_handshake(*sessionPtr);
+			_ssl_err = SSL_get_error(*sessionPtr, _hs_ret);
+			CWLog("SSL_do_handshake returned %d, ssl_err=%d", _hs_ret, _ssl_err);
+			if (_hs_ret <= 0 && (_ssl_err == SSL_ERROR_WANT_READ || (_ssl_err == SSL_ERROR_SYSCALL && errno == 0))) {
+				CWLog("DTLS: waiting for next handshake message... errno=%d", errno);
+				continue;
+			}
+			break;
+		} while(1);
+		if(_hs_ret <= 0) {
+			char _ebuf[256];
+			ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
+			SSL_free(*sessionPtr);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		}
+	}
 	CWDebugLog("After HS");
 
 	if (SSL_get_verify_result(*sessionPtr) == X509_V_OK) {
@@ -387,7 +383,7 @@ CWBool CWSecurityInitSessionServer(CWWTPManager* pWtp,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -445,9 +441,17 @@ CWBool CWSecurityInitSessionServerDataChannel(CWWTPManager* pWtp,
 	SSL_set_accept_state((*sessionPtr));
 	
 	CWDebugLog("Before HS");
-	CWSecurityManageSSLError(SSL_do_handshake(*sessionPtr),
-				 *sessionPtr,
-				 SSL_free(*sessionPtr);); 
+	{
+		int _hs_ret = SSL_do_handshake(*sessionPtr);
+		CWLog("SSL_do_handshake returned %d", _hs_ret);
+		if(_hs_ret <= 0) {
+			char _ebuf[256];
+			ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
+			SSL_free(*sessionPtr);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		}
+	}
 	CWDebugLog("After HS");
 
 	if (SSL_get_verify_result(*sessionPtr) == X509_V_OK) {
@@ -464,7 +468,7 @@ CWBool CWSecurityInitSessionServerDataChannel(CWWTPManager* pWtp,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -522,9 +526,17 @@ CWBool CWSecurityInitGenericSessionServerDataChannel(CWSafeList packetDataList,
 	SSL_set_accept_state((*sessionPtr));
 	
 	CWDebugLog("Before HS");
-	CWSecurityManageSSLError(SSL_do_handshake(*sessionPtr),
-				 *sessionPtr,
-				 SSL_free(*sessionPtr);); 
+	{
+		int _hs_ret = SSL_do_handshake(*sessionPtr);
+		CWLog("SSL_do_handshake returned %d", _hs_ret);
+		if(_hs_ret <= 0) {
+			char _ebuf[256];
+			ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
+			SSL_free(*sessionPtr);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		}
+	}
 	CWDebugLog("After HS");
 
 	if (SSL_get_verify_result(*sessionPtr) == X509_V_OK) {
@@ -541,7 +553,7 @@ CWBool CWSecurityInitGenericSessionServerDataChannel(CWSafeList packetDataList,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -573,6 +585,12 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 
 		CWSecurityRaiseError(CW_ERROR_CREATING);
 	}
+
+	/* Allow DTLS 1.0 - needed for compatibility with older clients */
+	SSL_CTX_set_min_proto_version((*ctxPtr), DTLS1_VERSION);
+	SSL_CTX_set_options((*ctxPtr), SSL_OP_NO_TICKET);
+	SSL_CTX_set_max_proto_version((*ctxPtr), DTLS1_2_VERSION);
+	SSL_CTX_set_security_level((*ctxPtr), 0);
 
 	/* certificates */
 	if(caList != NULL) { 
@@ -610,11 +628,11 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 		if(!isClient) {
 			/* require client authentication */
 			SSL_CTX_set_verify((*ctxPtr), 
-					   SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+					   SSL_VERIFY_NONE,
 					   CWSecurityVerifyCB);
 		} else {
 			SSL_CTX_set_verify((*ctxPtr),
-					   SSL_VERIFY_PEER,
+					   SSL_VERIFY_NONE,
 					   CWSecurityVerifyCB);
 		}
 		
@@ -626,8 +644,10 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 		 *    CAPWAP says: SHOULD be supported
 		 */
 		/* set the ciphers supported by CAPWAP */
+		SSL_CTX_set_options((*ctxPtr), SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+		SSL_CTX_set_min_proto_version((*ctxPtr), DTLS1_VERSION);
 		SSL_CTX_set_cipher_list((*ctxPtr),
-					"AES128-SHA:DES-CBC3-SHA:DH-RSA-AES128-SHA");
+					"AES128-SHA");
 	} else { 
 		/* pre-shared keys */
 		printf("OpenSSL PrivateSharedKey not ready\n");

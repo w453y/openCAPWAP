@@ -198,9 +198,6 @@ void CWACInit() {
 
 /* Elena Agostini - 04/2014 */
 	if(!CWErr(CWParseConfigFile()) ||
-#if !defined(CW_NO_DTLS) || defined(CW_DTLS_DATA_CHANNEL)
-	   !CWErr(CWSecurityInitLib()) ||
-#endif
 	   !CWErr(CWNetworkInitSocketServerMultiHomed(&gACSocket, CW_CONTROL_PORT, gMulticastGroups, gMulticastGroupsCount)) ||
 	   !CWErr(CWNetworkGetInterfaceAddresses(&gACSocket, &addresses, &IPv4Addresses)) ||
 	   !CWErr(CWCreateThreadMutex(&gWTPsMutex)) ||
@@ -213,11 +210,13 @@ void CWACInit() {
 
 /* Elena Agostini - 04/2014 */
 #if !defined(CW_NO_DTLS) || defined(CW_DTLS_DATA_CHANNEL)
+	if(!CWErr(CWSecurityInitLib())) { CWLog("Can't init SSL"); exit(1); }
 	if(gACDescriptorSecurity == CW_X509_CERTIFICATE) {
 
 		/*
 		 * Elena Agostini - 02/2014
 		 * Dynamic OpenSSL params
+	CWLog("DEBUG: About to init security context");
 		 */
 		if(!CWErr(CWSecurityInitContext(&gACSecurityContext,
 						gACCertificate,

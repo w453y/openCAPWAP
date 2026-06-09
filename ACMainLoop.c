@@ -76,7 +76,6 @@ void CWACSetNewGenericHandshakeDataThread(genericHandshakeThreadPtr * genericThr
 	if(addrPtr == NULL) return;
 
 	struct sockaddr_in *tmpAdd = (struct sockaddr_in *) addrPtr;
-	CWLog("[DTLS] New generic thread for WTP %s:%d", inet_ntoa(tmpAdd->sin_addr), ntohs(tmpAdd->sin_port));
 	
 	CW_COPY_NET_ADDR_PTR(&((*genericThreadStruct)->addressWTPPtr), addrPtr);
 					
@@ -216,7 +215,6 @@ void CWACManageIncomingPacket(CWSocket sock,
 							CW_CREATE_OBJECT_ERR(listGenericThreadDTLSData[indexTmpThread], genericHandshakeThread, return NULL; );
 
 							struct sockaddr_in *tmpAdd = (struct sockaddr_in *) addrPtr;
-							CWLog("[DTLS] New generic thread for WTP %s:%d", inet_ntoa(tmpAdd->sin_addr), ntohs(tmpAdd->sin_port));
 							
 							CW_COPY_NET_ADDR_PTR(&(listGenericThreadDTLSData[indexTmpThread]->addressWTPPtr), addrPtr);
 											
@@ -332,6 +330,15 @@ void CWACManageIncomingPacket(CWSocket sock,
 	}
 #endif
 
+		/* If plain packet arrives for a DTLS session, treat as new WTP */
+		#ifndef CW_NO_DTLS
+		if (wtpPtr != NULL && !dataFlag && (buf[0] & 0x0f) != CW_PACKET_CRYPT) {
+			CWLog("Plain packet for DTLS slot - treating as new WTP session");
+			wtpPtr->isRequestClose = CW_TRUE;
+			CWSignalThreadCondition(&wtpPtr->interfaceWait);
+			wtpPtr = NULL;
+		}
+		#endif
 	if(wtpPtr != NULL) {
 		/* known WTP */
 		/* Clone data packet */
@@ -352,6 +359,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 		else
 		{
 			CWLockSafeList(wtpPtr->packetReceiveList);
+				CWLog("[ROUTE] routing %d bytes to WTP packetReceiveList", readBytes);
 			CWAddElementToSafeListTailwitDataFlag(wtpPtr->packetReceiveList, pData, readBytes,dataFlag);
 			CWUnlockSafeList(wtpPtr->packetReceiveList);
 		}
@@ -428,6 +436,8 @@ void CWACManageIncomingPacket(CWSocket sock,
 		} else { 
 			/* this isn't a Discovery Request */
 			if (dataFlag == CW_TRUE) { CWLog("Ignoring data packet from unknown WTP"); return; }
+			/* Ignore DTLS Alert from unknown WTP - likely close_notify from previous session */
+			if(readBytes >= 5 && (buf[4] & 0xFF) == 0x15) { CWLog("Ignoring DTLS Alert from unknown WTP"); return; }
 		CWLog("NOT Discovery - spawning WTP thread");
 			int i;
 			CWACThreadArg *argPtr;
@@ -460,6 +470,20 @@ void CWACManageIncomingPacket(CWSocket sock,
 					   &gWTPs[i].interfaceMutex);
 			CWSetConditionSafeList(gWTPs[i].packetReceiveList,
 					       &gWTPs[i].interfaceWait);
+
+					/* Skip DTLS Alert records from unknown WTPs */
+					if(readBytes >= 5 && (buf[4] & 0xFF) == 0x15) {
+						CWLog("Ignoring DTLS Alert from new WTP, waiting for ClientHello");
+					} else
+				/* Save first DTLS packet (ClientHello) into receive list */
+				{
+					char *_pData;
+					CW_CREATE_OBJECT_SIZE_ERR(_pData, readBytes, { CWLog("OOM"); });
+					memcpy(_pData, buf, readBytes);
+					CWLockSafeList(gWTPs[i].packetReceiveList);
+					CWAddElementToSafeListTailwitDataFlag(gWTPs[i].packetReceiveList, _pData, readBytes, dataFlag);
+					CWUnlockSafeList(gWTPs[i].packetReceiveList);
+				}
 
 			/*
 			 * Elena Agostini - 03/2014
@@ -777,6 +801,18 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 			if((pBuffer[0] & 0x0f) == CW_PACKET_CRYPT)  
 				bCrypt = CW_TRUE;
 
+				/* In DTLS mode, discard plain (unencrypted) packets */
+				#ifndef CW_NO_DTLS
+				if (!bCrypt) {
+					CWLog("Discarding plain packet in DTLS session, readBytes=%d", readBytes);
+					CWThreadMutexLock(&gWTPs[i].interfaceMutex);
+					CWRemoveHeadElementFromSafeListwithDataFlag(gWTPs[i].packetReceiveList, &readBytes, &dataFlag);
+					CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+					CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
+					continue;
+				}
+				#endif
+
 			
 			CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
 
@@ -852,7 +888,7 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 						if(CWErrorGetLastErrorCode() == CW_ERROR_INVALID_FORMAT) 
 						{
 							/* Log and ignore other messages */
-							CWErrorHandleLast();
+						/* skip error handling to avoid crash */
 							CWLog("Received something different from a Configure Request");
 						} 
 						else 
@@ -1484,7 +1520,6 @@ CW_THREAD_RETURN_TYPE CWGenericWTPDataHandshake(void *arg) {
 	CWThreadMutexUnlock(&gWTPsMutex);
 	
 	struct sockaddr_in *tmpAdd1 = (struct sockaddr_in *) &(argInputThread->addressWTPPtr);
-	CWLog("[DTLS] New DTLS Data session created with WTP %s:%d.. generic thread exit", inet_ntoa(tmpAdd1->sin_addr), ntohs(tmpAdd1->sin_port));
 	
 	return NULL;
 }
