@@ -176,13 +176,22 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveDtlsPacket(void *arg) {
 			break;
 		}
 		
+			CWLog("[RECV] got %d bytes buf[0]=0x%02x", readBytes, (unsigned char)buf[0]);
 		/* Clone data packet */
 		CW_CREATE_OBJECT_SIZE_ERR(pData, readBytes, { CWLog("Out Of Memory"); return NULL; });
 		memcpy(pData, buf, readBytes);
 
+			/* Only add DTLS encrypted packets */
+			if ((buf[0] & 0x0f) != CW_PACKET_CRYPT) {
+				CWLog("[RECV] skipping non-CRYPT packet buf[0]=0x%02x", (unsigned char)buf[0]);
+				CW_FREE_OBJECT(pData);
+				continue;
+			}
 		CWLockSafeList(gPacketReceiveList);
 		CWAddElementToSafeListTailwitDataFlag(gPacketReceiveList, pData, readBytes,CW_FALSE);
 		CWUnlockSafeList(gPacketReceiveList);		
+			CWLog("[RECV] added %d bytes to gPacketReceiveList %p", readBytes, gPacketReceiveList);
+			CWSignalElementSafeList(gPacketReceiveList);
 	}
 	
 	CWLog("THREAD Receiver Control channel exit");

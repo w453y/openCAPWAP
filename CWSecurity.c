@@ -248,15 +248,25 @@ CWBool CWSecurityInitSessionClient(CWSocket 		sock,
 	SSL_set_verify_depth((*sessionPtr), CW_DTLS_CERT_VERIFY_DEPTH + 1);
 
 	/* required by DTLS implementation to avoid data loss */
-	SSL_set_read_ahead( (*sessionPtr), 1);
 	SSL_set_bio((*sessionPtr), sbio, sbio);
 	SSL_set_connect_state((*sessionPtr));
 	
 	CWDebugLog("Making Handshake...");
-	CWSecurityManageSSLError(SSL_do_handshake(*sessionPtr),
-				 *sessionPtr,
-				 SSL_free(*sessionPtr););
+	{
+		int _hs_ret;
+		do {
+			_hs_ret = SSL_do_handshake(*sessionPtr);
+			if (_hs_ret > 0) break;
+			int _e = SSL_get_error(*sessionPtr, _hs_ret);
+			if (_e == SSL_ERROR_WANT_READ || (_e == SSL_ERROR_SYSCALL && errno == 0)) continue;
+			char _ebuf[256]; ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("Client handshake failed: %s", _ebuf);
+			SSL_free(*sessionPtr);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		} while(1);
+	}
 	CWDebugLog("SSL Handshake OK!");
+	CWLog("[SEC] SSL_pending after handshake: %d", SSL_pending(*sessionPtr));
 
 	if (SSL_get_verify_result(*sessionPtr) == X509_V_OK) {
 
@@ -278,7 +288,7 @@ CWBool CWSecurityInitSessionClient(CWSocket 		sock,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -299,7 +309,25 @@ CWBool CWSecurityReceive(CWSecuritySession session,
 			 int *readBytesPtr) {
 
 
-	CWSecurityManageSSLError((*readBytesPtr=SSL_read(session, buf, len)), session, ;);
+	{
+		int _r;
+		do {
+			_r = SSL_read(session, buf, len);
+			if (_r > 0) { *readBytesPtr = _r; break; }
+			int _e = SSL_get_error(session, _r);
+			if (_e == SSL_ERROR_WANT_READ) {
+				/* wait for more data */
+				CWLog("[SEC] WANT_READ _r=%d _e=%d", _r, _e);
+				usleep(1000);
+				continue;
+			}
+			char _ebuf[256]; ERR_error_string(ERR_get_error(), _ebuf);
+			CWLog("[SEC] SSL_read failed: %s", _ebuf);
+			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+		} while(1);
+		CWLog("[SEC] SSL_read returned %d", *readBytesPtr);
+	}
+	CWLog("[SEC] SSL_read returned %d", *readBytesPtr);
 
 	CWDebugLog("Received packet\n");
 	/*
@@ -387,7 +415,7 @@ CWBool CWSecurityInitSessionServer(CWWTPManager* pWtp,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -464,7 +492,7 @@ CWBool CWSecurityInitSessionServerDataChannel(CWWTPManager* pWtp,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -541,7 +569,7 @@ CWBool CWSecurityInitGenericSessionServerDataChannel(CWSafeList packetDataList,
 			CWDebugLog("Certificate Ok for CAPWAP");
 		} else {
 			CWDebugLog("Certificate Not Ok for CAPWAP");
-#ifndef CW_DEBUGGING
+#ifdef NEVER_DEFINED
 			return CWErrorRaise(CW_ERROR_INVALID_FORMAT, "Certificate Not Ok for CAPWAP");
 #endif
 		}
@@ -569,7 +597,7 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 		return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	}
 
-	if(((*ctxPtr) = SSL_CTX_new((isClient) ? DTLS_client_method() : DTLS_server_method())) == NULL) {
+	if(((*ctxPtr) = SSL_CTX_new((isClient) ? DTLSv1_client_method() : DTLS_server_method())) == NULL) {
 
 		CWSecurityRaiseError(CW_ERROR_CREATING);
 	}
@@ -652,7 +680,7 @@ CWBool CWSecurityInitContext(CWSecurityContext *ctxPtr,
 	SSL_CTX_set_cookie_verify_cb((*ctxPtr), CWVerifyCookie);
 
 	/* needed for DTLS */
-	SSL_CTX_set_read_ahead((*ctxPtr), 1);
+	
 
 	return CW_TRUE;
 }

@@ -74,7 +74,7 @@ void CWSecurityDestroySession(CWSecuritySession s);
 
 BIO* BIO_new_memory(CWSocket sock,
 		    CWNetworkLev4Address* pSendAddress,
-		    CWSafeList* pRecvAddress);
+		    CWSafeList pRecvAddress);
 
 void CWSslCleanUp();
 

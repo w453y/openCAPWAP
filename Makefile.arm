@@ -25,8 +25,8 @@ LDFLAGS  += -lpthread -ldl
 LDFLAGS  += -D_REENTRANT
 
 CFLAGS    = $(INCLUDES)
-CFLAGS   += -DCW_NO_DTLS
-CFLAGS   += -DCW_NO_DTLSCWParseConfigurationUpdateRequest
+
+
 CFLAGS   += -DCW_DEBUGGING
 CFLAGS   += -DOPENSSL_NO_KRB5
 CFLAGS   += -DWRITE_STD_OUTPUT

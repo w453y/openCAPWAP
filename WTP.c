@@ -168,6 +168,7 @@ CWBool CWReceiveMessage(CWProtocolMessage *msgPtr) {
 		CW_COPY_MEMORY(buf, pkt_buffer, readBytes);
 		CW_FREE_OBJECT(pkt_buffer);
 #else
+	CWLog("[WTP] about to call CWSecurityReceive");
 		if(!CWSecurityReceive(gWTPSession, buf, CW_BUFFER_SIZE, &readBytes)) {return CW_FALSE;}
 #endif
 
