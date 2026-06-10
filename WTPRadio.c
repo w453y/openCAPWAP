@@ -16,6 +16,14 @@ CWBool CWWTPGetRadioGlobalInfo(void) {
 	int err, indexPhy=0;
 	int indexWlan, indexRates;
 	
+	/* Release the radio from OpenWrt netifd before the WTP claims it.
+	 * Without this, nl80211 frame/class3 registration fails with
+	 * EALREADY/EBUSY because netifd already owns the VAP. */
+	CWLog("[RADIO INIT] Releasing radio from netifd (wifi down)");
+	if (system("wifi down") != 0)
+		CWLog("[RADIO INIT] warning: 'wifi down' returned non-zero");
+	sleep(3);
+
 	gRadiosInfo.radioCount = gPhyInterfaceCount;
 	CW_CREATE_ARRAY_CALLOC_ERR(gRadiosInfo.radiosInfo, gRadiosInfo.radioCount, CWWTPRadioInfoValues, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	

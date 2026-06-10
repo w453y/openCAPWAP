@@ -874,6 +874,12 @@ int nl80211_register_frame(WTPInterfaceInfo * interfaceInfo,
 	
 	//Corretto questo netlink global?
 	ret = send_and_recv(&(globalNLSock), nl_handle, msg, NULL, NULL);
+	/* EALREADY (-114): frame type already registered (e.g. radio pre-owned). Treat as success. */
+	if (ret == -114) {
+		CWLog("nl80211: Register frame type=%u already registered (EALREADY), continuing", type);
+		msg = NULL;
+		return CW_TRUE;
+	}
 	if( ret != 0)
 	{
 		CWLog("[NL80211 ERROR] Register frame command failed (type=%u): ret=%d (%s)", type, ret, strerror(-ret));
@@ -919,7 +925,10 @@ int nl80211_register_spurious_class3(WTPInterfaceInfo * interfaceInfo)
 	ret = send_and_recv(&(globalNLSock), interfaceInfo->nl_mgmt, msg, NULL, NULL);
 	
 	msg = NULL;
-	if (ret) {
+	if (ret == -114) {
+		CWLog("nl80211: spurious class3 already registered (EALREADY), continuing");
+		ret = 0;
+	} else if (ret) {
 		CWLog("nl80211: Register spurious class3 failed: ret=%d (%s)", ret, strerror(-ret));
 		goto nla_put_failure;
 	}
