@@ -211,6 +211,7 @@ CWBool CWSaveIEEEConfigurationRequestMessage(ACInterfaceRequestInfo * interfaceA
 	
 //	CWLog("WLAN Interface op %d on radioID: %d wlanID: %d", interfaceACInfo->operation, indexRadio, indexWlan);
 	//Add Wlan
+	CWLog("[SAVE] op=%d indexRadio=%d indexWlan=%d MAX_IF=%d RADIO_MAX=%d typeIface=%d radioID=%d wlanID=%d", interfaceACInfo->operation, CWIEEEBindingGetIndexFromDevID(interfaceACInfo->radioID), CWIEEEBindingGetIndexFromDevID(interfaceACInfo->wlanID), WTP_MAX_INTERFACES, WTP_RADIO_MAX, gRadiosInfo.radiosInfo[CWIEEEBindingGetIndexFromDevID(interfaceACInfo->radioID)].gWTPPhyInfo.interfaces[CWIEEEBindingGetIndexFromDevID(interfaceACInfo->wlanID)].typeInterface, interfaceACInfo->radioID, interfaceACInfo->wlanID);
 	if(interfaceACInfo->operation == CW_OP_ADD_WLAN)
 	{
 		if(
