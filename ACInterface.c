@@ -114,19 +114,15 @@ int CWWumSetValues(int selection, int socketIndex, CWProtocolVendorSpecificValue
  * Elena Agostini - 09/2014: IEEE 802.11 Binding + WUM
  */
 int CWWLANSetValues(int selection, int socketIndex, WUMWLANCmdParameters * cmdWLAN) {
-	
-	CWThreadMutexLock(&(gWTPs[selection].interfaceMutex));
-	
+	/* Set command directly without blocking on interfaceMutex */
 	gWTPs[selection].cmdWLAN = cmdWLAN;
-	gWTPs[selection].interfaceCommand = IEEE_WLAN_CONFIGURATION_CMD;
 	gWTPs[selection].applicationIndex = socketIndex;
-	CWSignalThreadCondition(&gWTPs[selection].interfaceWait);
-	CWWaitThreadCondition(&gWTPs[selection].interfaceComplete, &gWTPs[selection].interfaceMutex);
-	
-	CWThreadMutexUnlock(&(gWTPs[selection].interfaceMutex));
-	
+	__sync_synchronize(); /* memory barrier */
+	gWTPs[selection].interfaceCommand = IEEE_WLAN_CONFIGURATION_CMD;
+	__sync_synchronize();
+	CWLog("[WLAN] interfaceCommand set to %d for slot %d", gWTPs[selection].interfaceCommand, selection);
 	return 0;
-}	
+}
 
 
 /************************************************************************
@@ -576,8 +572,8 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 						else // One specific Wtp Case
 							CWWLANSetValues(wtpIndex, socketIndex, cmdWLAN);
 						
-						CW_FREE_OBJECT(cmdWLAN->ssid);
-						CW_FREE_OBJECT(cmdWLAN);
+							/* cmdWLAN freed by CWManageWTP after processing */
+							/* cmdWLAN freed by CWManageWTP after processing */
 						
 						break;
 						

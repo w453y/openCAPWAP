@@ -275,7 +275,13 @@ CWBool CWSecurityReceive(CWSecuritySession session,
 			 int *readBytesPtr) {
 
 
-	CWSecurityManageSSLError((*readBytesPtr=SSL_read(session, buf, len)), session, ;);
+	{
+		int _r = SSL_read(session, buf, len);
+		if (_r > 0) { *readBytesPtr = _r; }
+		else {
+			return CWErrorRaise(CW_ERROR_INTERRUPTED, NULL);
+		}
+	}
 
 	CWDebugLog("Received packet\n");
 	/*

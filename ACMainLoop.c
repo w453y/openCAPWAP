@@ -767,8 +767,11 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 		       (gWTPs[i].interfaceCommand == NO_CMD)) {
 
 			 /*TODO: Check system */
-			CWWaitThreadCondition(&gWTPs[i].interfaceWait, 
-					      &gWTPs[i].interfaceMutex);
+			struct timespec _ots;
+			clock_gettime(CLOCK_REALTIME, &_ots);
+			_ots.tv_nsec += 100000000;
+			if (_ots.tv_nsec >= 1000000000) { _ots.tv_sec++; _ots.tv_nsec -= 1000000000; }
+			pthread_cond_timedwait(&gWTPs[i].interfaceWait, &gWTPs[i].interfaceMutex, &_ots);
 		}
 
 		CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
@@ -784,7 +787,11 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 				   CW_SOFT_TIMER_EXPIRED_SIGNAL,
 				   CW_CRITICAL_TIMER_EXPIRED_SIGNAL);
 
-		if (CWGetCountElementFromSafeList(gWTPs[i].packetReceiveList) > 0) {
+			CWLog("[L787] interfaceCommand=%d listCount=%lu", gWTPs[i].interfaceCommand, CWGetCountElementFromSafeList(gWTPs[i].packetReceiveList));
+			/* Handle pending interface command immediately */
+			CWLog("[GOTO] interfaceCommand=%d going to handle_interface_cmd", gWTPs[i].interfaceCommand); if (gWTPs[i].interfaceCommand != NO_CMD) goto handle_interface_cmd;
+		if (CWGetCountElementFromSafeList(gWTPs[i].packetReceiveList) > 0 &&
+                    gWTPs[i].interfaceCommand == NO_CMD) {
 
 			CWBool 	bCrypt = CW_FALSE;
 			char	*pBuffer;
@@ -805,9 +812,9 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 				#ifndef CW_NO_DTLS
 				if (!bCrypt) {
 					CWLog("Discarding plain packet in DTLS session, readBytes=%d", readBytes);
-					CWThreadMutexLock(&gWTPs[i].interfaceMutex);
+						/* mutex already held above */
 					CWRemoveHeadElementFromSafeListwithDataFlag(gWTPs[i].packetReceiveList, &readBytes, &dataFlag);
-					CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+						CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
 					CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
 					continue;
 				}
@@ -816,6 +823,28 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 			
 			CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
 
+				/* If interface command pending, skip SSL_read and handle it */
+				CWLog("[CHK] bCrypt path: interfaceCommand=%d listCount=%lu", gWTPs[i].interfaceCommand, CWGetCountElementFromSafeList(gWTPs[i].packetReceiveList));
+				if (gWTPs[i].interfaceCommand != NO_CMD) {
+					CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+					goto handle_interface_cmd;
+				}
+				/* Wait for data before calling CWSecurityReceive */
+				{
+					CWThreadMutexLock(&gWTPs[i].interfaceMutex);
+					while (CWGetCountElementFromSafeList(gWTPs[i].packetReceiveList) == 0 &&
+					       gWTPs[i].interfaceCommand == NO_CMD &&
+					       gWTPs[i].isRequestClose == CW_FALSE) {
+						struct timespec _wts;
+						clock_gettime(CLOCK_REALTIME, &_wts);
+						_wts.tv_nsec += 100000000;
+						if (_wts.tv_nsec >= 1000000000) { _wts.tv_sec++; _wts.tv_nsec -= 1000000000; }
+						pthread_cond_timedwait(&gWTPs[i].interfaceWait, &gWTPs[i].interfaceMutex, &_wts);
+					}
+					CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+					CWLog("[GOTO] interfaceCommand=%d going to handle_interface_cmd", gWTPs[i].interfaceCommand); if (gWTPs[i].interfaceCommand != NO_CMD) goto handle_interface_cmd;
+					if (gWTPs[i].isRequestClose) { _CWCloseThread(i); }
+				}
 			if (bCrypt) {
 			  if(!CWErr(CWSecurityReceive(gWTPs[i].session,
 										  gWTPs[i].buf,
@@ -826,7 +855,8 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 				CWDebugLog("Error during security receive");
 				CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
 
-				continue;
+				CWLog("[GOTO] interfaceCommand=%d going to handle_interface_cmd", gWTPs[i].interfaceCommand); if (gWTPs[i].interfaceCommand != NO_CMD) goto handle_interface_cmd;
+                                continue;
 			  }
 			  
 			} else {
@@ -986,6 +1016,8 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 			CW_FREE_PROTOCOL_MESSAGE(msg);
 		}
 		else {
+		handle_interface_cmd:
+				CWLog("[CMD] handle_interface_cmd reached cmd=%d", gWTPs[i].interfaceCommand);
 
 		  CWThreadMutexLock(&gWTPs[i].interfaceMutex);
 		  
@@ -1136,6 +1168,7 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 				}
 			}
 
+					if (gWTPs[i].cmdWLAN) { CW_FREE_OBJECT(gWTPs[i].cmdWLAN->ssid); CW_FREE_OBJECT(gWTPs[i].cmdWLAN); gWTPs[i].cmdWLAN = NULL; }
 				gWTPs[i].interfaceCommand = NO_CMD;
 
 				if (bResult)

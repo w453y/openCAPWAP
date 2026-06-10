@@ -77,8 +77,12 @@ static int memory_read(BIO *b, char *out, int outl)
     BIO_memory_data* pData = (BIO_memory_data*)BIO_get_data(b);
 
     CWLockSafeList(pData->pRecvAddress);
-    while (CWGetCountElementFromSafeList(pData->pRecvAddress) == 0)
-        CWWaitElementFromSafeList(pData->pRecvAddress);
+    if (CWGetCountElementFromSafeList(pData->pRecvAddress) == 0) {
+        CWUnlockSafeList(pData->pRecvAddress);
+        BIO_set_retry_read(b);
+        usleep(1000); /* 1ms outside mutex - allow other threads to acquire it */
+        return -1;
+    }
 
     buf = (char*)CWRemoveHeadElementFromSafeList(pData->pRecvAddress, &size);
     CWUnlockSafeList(pData->pRecvAddress);
