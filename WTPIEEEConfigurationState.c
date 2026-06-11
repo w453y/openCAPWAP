@@ -27,6 +27,7 @@
 
  
 #include "CWWTP.h"
+#include "WTPDataTunnel.h"
 
 #ifdef DMALLOC
 #include "../dmalloc-5.5.0/dmalloc.h"
@@ -242,6 +243,22 @@ CWBool CWSaveIEEEConfigurationRequestMessage(ACInterfaceRequestInfo * interfaceA
 			
 			if(!CWWTPSetAPInterface(indexRadio, indexWlan, &(gRadiosInfo.radiosInfo[indexRadio].gWTPPhyInfo.interfaces[indexWlan])))
 				goto failure;
+
+			/* Milestone-3: create the NSS CAPWAP data-plane offload tunnel for this WLAN. */
+			{
+				uint32_t acIpHost, apIpHost = (uint32_t)CWWTPGetIPv4Address();
+				struct sockaddr_in *acAddr = (struct sockaddr_in *)&(gACInfoPtr->preferredAddress);
+				uint8_t wanMac[6] = {0x58,0x61,0x63,0xf3,0x8f,0xf4}; /* eth1 - TODO read at runtime */
+				uint8_t tunId = 0;
+				acIpHost = ntohl(acAddr->sin_addr.s_addr);
+				if (CWWTPCreateDataTunnel(acIpHost, apIpHost, 5247, (uint32_t)gWTPPathMTU,
+						"eth1", wanMac,
+						(const uint8_t *)gRadiosInfo.radiosInfo[indexRadio].gWTPPhyInfo.interfaces[indexWlan].BSSID,
+						&tunId) == 0)
+					CWLog("[DATATUN] data tunnel created radio=%d wlan=%d tun_id=%d", indexRadio, indexWlan, tunId);
+				else
+					CWLog("[DATATUN] data tunnel creation FAILED radio=%d wlan=%d", indexRadio, indexWlan);
+			}
 			
 			//Add interface to bridge
 /*			if(gRadiosInfo.radiosInfo[indexRadio].gWTPPhyInfo.interfaces[indexWlan].frameTunnelMode == CW_LOCAL_BRIDGING)

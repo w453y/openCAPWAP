@@ -16,6 +16,14 @@ INCLUDES += -I$(TARGET_SYSROOT)/usr/include
 INCLUDES += -I./HostapdHeaders/utils/
 INCLUDES += -I./include/
 
+# --- NSS CAPWAP offload (Milestone 3) ---
+QSDK_SRC = /workdir3/qsdk
+INCLUDES += -I$(QSDK_SRC)/qca/src/nss-userspace-oss/lib/include
+INCLUDES += -I$(QSDK_SRC)/qca/src/qca-nss-clients/exports
+INCLUDES += -I$(QSDK_SRC)/qca/src/qca-nss-clients/netlink/include
+INCLUDES += -I$(QSDK_SRC)/qca/src/qca-nss-drv/exports
+INCLUDES += -I$(TARGET_SYSROOT)/usr/include/qca-nss-drv
+
 LIB_PATH  = $(TARGET_SYSROOT)/usr/lib
 
 LDFLAGS   = -L$(LIB_PATH)
@@ -33,6 +41,9 @@ CFLAGS   += -DWRITE_STD_OUTPUT
 CFLAGS   += -fgnu89-inline
 
 WTP_OBJS  = WTP.o
+WTP_OBJS += WTPDataTunnel.o
+WTP_OBJS += nss_nlcapwap_api.o
+WTP_OBJS += nss_nlsock.o
 WTP_OBJS += WTPFrameReceive.o
 WTP_OBJS += WTPFreqStatsReceive.o
 WTP_OBJS += WTPStatsReceive.o
@@ -88,6 +99,12 @@ all: $(WTP_NAME)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 ./HostapdHeaders/utils/os_unix.o: ./HostapdHeaders/utils/os_unix.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+nss_nlcapwap_api.o: $(QSDK_SRC)/qca/src/nss-userspace-oss/lib/nss_nlcapwap_api.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+nss_nlsock.o: $(QSDK_SRC)/qca/src/nss-userspace-oss/lib/nss_nlsock.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(WTP_NAME): $(WTP_OBJS)
