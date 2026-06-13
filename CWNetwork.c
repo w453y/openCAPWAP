@@ -236,7 +236,7 @@ CWBool CWNetworkInitSocketClientDataChannel(CWSocket *sockPtr, CWNetworkLev4Addr
 #ifdef IPv6
 	sockaddr.sin6_family = (gNetworkPreferredFamily == CW_IPv4) ? AF_INET : AF_INET6;
 #else
-	sockaddr.sin_family == AF_INET;
+	sockaddr.sin_family = AF_INET;
 #endif
 
 	/*
@@ -370,7 +370,7 @@ CWBool CWNetworkInitSocketClientDataChannelWithPort(CWSocket *sockPtr, CWNetwork
 #ifdef IPv6
 	sockaddr.sin6_family = (gNetworkPreferredFamily == CW_IPv4) ? AF_INET : AF_INET6;
 #else
-	sockaddr.sin_family == AF_INET;
+	sockaddr.sin_family = AF_INET;
 #endif
 
 	/* Elena Agostini - 04/2014 */
