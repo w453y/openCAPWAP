@@ -311,6 +311,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 				CWParseFormatMsgElem(&msgDataChannel, &elemType, &elemLen);
 				valSessionIDPtr = CWParseSessionID(&msgDataChannel, 16);
 				wtpPtr = CWWTPByAddress(addrPtr, sock, dataFlag, valSessionIDPtr);
+				CWLog("[KA-LOOKUP] dataFlag=%d wtpPtr=%p", dataFlag, (void*)wtpPtr);
 			}
 			else {
 	{
@@ -811,10 +812,26 @@ CW_THREAD_RETURN_TYPE CWManageWTP(void *arg) {
 				/* In DTLS mode, discard plain (unencrypted) packets */
 				#ifndef CW_NO_DTLS
 				if (!bCrypt) {
-					CWLog("Discarding plain packet in DTLS session, readBytes=%d", readBytes);
-						/* mutex already held above */
-					CWRemoveHeadElementFromSafeListwithDataFlag(gWTPs[i].packetReceiveList, &readBytes, &dataFlag);
-						CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+					/* Dequeue the plain packet (mutex already held) */
+					char *plainBuf = (char*)CWRemoveHeadElementFromSafeListwithDataFlag(gWTPs[i].packetReceiveList, &readBytes, &dataFlag);
+					CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+					if (dataFlag == CW_TRUE && plainBuf != NULL) {
+						/* Plain DATA keepalive: dispatch to ACEnterRun so the echo fires */
+						CWProtocolMessage dmsg;
+						CWProtocolTransportHeaderValues dvals;
+						CWBool df = CW_TRUE;
+						memset(&dvals, 0, sizeof(dvals));
+						dmsg.msg = plainBuf;
+						dmsg.offset = 0;
+						if (CWParseTransportHeader(&dmsg, &dvals, &df, gWTPs[i].RadioMAC)) {
+							ACEnterRun(i, &dmsg, CW_TRUE);
+						}
+						CW_FREE_OBJECT(plainBuf);
+						CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
+						continue;
+					}
+					CWLog("Discarding plain control packet in DTLS session");
+					CW_FREE_OBJECT(plainBuf);
 					CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
 					continue;
 				}

@@ -198,6 +198,7 @@ CWBool ACEnterRun(int WTPIndex, CWProtocolMessage *msgPtr, CWBool dataFlag) {
 			CWLog("CW_DATA_MSG_FRAME_TYPE. Non faccio nulla?");
 		}
 		else if(msgPtr->data_msgType == CW_DATA_MSG_KEEP_ALIVE_TYPE){
+			CWLog("[AC-KA] entered keepalive echo branch, WTPIndex=%d", WTPIndex);
 			
 			char * valPtr=NULL;
 			CWProtocolMessage *messages = NULL;
