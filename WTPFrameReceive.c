@@ -231,6 +231,14 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			   strerror(errno));
 	}
 
+	/* Option B: recv timeout so the capture loop wakes periodically and can
+	 * detect monitor0 being destroyed/recreated by the ADD_WLAN wifi restart. */
+	{
+		struct timeval _tv; _tv.tv_sec = 2; _tv.tv_usec = 0;
+		setsockopt(gRawSock, SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv));
+	}
+	unsigned int gMonIfIndex = if_nametoindex("monitor0");
+
 	nodeAVL * tmpNodeSta=NULL;
 	
 	/* RAW SOCKET on monitor interface to Inject packets */
@@ -256,7 +264,24 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
  	CW_REPEAT_FOREVER{
 		n = recvfrom(gRawSock,buffer,sizeof(buffer),0,NULL,NULL);
 
-		if(n<0)continue;
+		if(n<0){
+			unsigned int _cur = if_nametoindex("monitor0");
+			if(_cur != 0 && _cur != gMonIfIndex){
+				struct sockaddr_ll _a;
+				memset(&_a, 0, sizeof(_a));
+				_a.sll_family = AF_PACKET;
+				_a.sll_ifindex = _cur;
+				if(bind(gRawSock, (struct sockaddr*)&_a, sizeof(_a)) == 0){
+					gMonIfIndex = _cur;
+					CWLog("[OptionB] Rebound capture socket to monitor0 ifindex %u", _cur);
+				}
+				memset(&addr_inject, 0, sizeof(addr_inject));
+				addr_inject.sll_family = AF_PACKET;
+				addr_inject.sll_ifindex = _cur;
+				bind(rawInjectSocket, (struct sockaddr*)&addr_inject, sizeof(addr_inject));
+			}
+			continue;
+		}
 
 		if (!wtpInRunState){
 			continue;
@@ -278,6 +303,28 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			CWLog("CW80211: Error parsing data frame");
 			continue;
 		}
+
+		/* Option B: only handle frames for OUR BSS. monitor0 captures the whole
+		 * channel promiscuously, so without this we would learn foreign STAs
+		 * from other APs sharing the channel. Match frame BSSID to ath1 MAC. */
+		if(WTPGlobalBSSList == NULL || WTPGlobalBSSList[0] == NULL ||
+		   WTPGlobalBSSList[0]->interfaceInfo == NULL ||
+		   WTPGlobalBSSList[0]->interfaceInfo->MACaddr == NULL)
+			continue;
+		/* Compare lower 5 bytes only: qca-wifi varies the first MAC octet across
+		 * VAPs and wifi restarts (58 vs 5e), but 61:63:f3:8f:f6 is stable. */
+		{
+			static int _dbgcount = 0;
+			if(_dbgcount < 30){
+				unsigned char *_b = (unsigned char*)dataFrame.BSSID;
+				unsigned char *_m = (unsigned char*)WTPGlobalBSSList[0]->interfaceInfo->MACaddr;
+				CWLog("[BSSID-DBG] frame BSSID %02x:%02x:%02x:%02x:%02x:%02x vs stored %02x:%02x:%02x:%02x:%02x:%02x",
+					_b[0],_b[1],_b[2],_b[3],_b[4],_b[5], _m[0],_m[1],_m[2],_m[3],_m[4],_m[5]);
+				_dbgcount++;
+			}
+		}
+		if(memcmp(dataFrame.BSSID + 1, WTPGlobalBSSList[0]->interfaceInfo->MACaddr + 1, ETH_ALEN - 1) != 0)
+			continue;
 		
 		//If data frame && toDS
 		if(
@@ -292,8 +339,26 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			CWThreadMutexUnlock(&mutexAvlTree);
 			if(tmpNodeSta == NULL)
 			{
-	//			CWLog("STA[%02x:%02x:%02x:%02x:%02x:%02x] non associata. Ignoro", (int) dataFrame.SA[0], (int) dataFrame.SA[1], (int) dataFrame.SA[2], (int) dataFrame.SA[3], (int) dataFrame.SA[4], (int) dataFrame.SA[5]);
-				continue;
+				/* Option B: qca-wifi/hostapd owns MLME. A toDS data frame means
+				 * hostapd has already associated this STA at the driver level.
+				 * Learn it: add to BSS staList + AVL tree so its data forwards. */
+				if(WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL)
+				{
+					WTPSTAInfo *learnedSta = addSTABySA(WTPGlobalBSSList[0], dataFrame.SA);
+					if(learnedSta != NULL)
+					{
+						learnedSta->state = CW_80211_STA_ASSOCIATION;
+						CWThreadMutexLock(&mutexAvlTree);
+						avlTree = AVLinsert(0, learnedSta->address,
+							WTPGlobalBSSList[0]->interfaceInfo->MACaddr,
+							WTPGlobalBSSList[0]->phyInfo->radioID, avlTree);
+						tmpNodeSta = AVLfind(dataFrame.SA, avlTree);
+						CWThreadMutexUnlock(&mutexAvlTree);
+						CWPrintEthernetAddress(dataFrame.SA, "[OptionB] Learned associated STA from data frame");
+					}
+				}
+				if(tmpNodeSta == NULL)
+					continue;
 			}
 		//	else
 		//		CWLog("STA trovata [%02x:%02x:%02x:%02x:%02x:%02x]", (int) tmpNodeSta->staAddr[0], (int) tmpNodeSta->staAddr[1], (int) tmpNodeSta->staAddr[2], (int) tmpNodeSta->staAddr[3], (int) tmpNodeSta->staAddr[4], (int) tmpNodeSta->staAddr[5]);
