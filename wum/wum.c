@@ -244,13 +244,16 @@ int *get_id_list(char *wtpIds, char *wtpNames, int *n)
 		/* read ids */
 		token = (char*)strtok_r(wtpIds, ",", &saveptr);
 		if (token == NULL) { free(ret); return NULL; }
-		ret[0] = atoi(token);
+		ret[0] = (token != NULL) ? atoi(token) : -2;
 
 		if (ret[0] == -1) 
 			return all_WTPs();
 		
-		for (i = 1; i < *n; i++)
-			ret[i] = atoi( (const char*)strtok_r(NULL, ",", &saveptr) );
+		for (i = 1; i < *n; i++) {
+			char *tok = (char*)strtok_r(NULL, ",", &saveptr);
+			if (tok == NULL) { *n = i; break; }
+			ret[i] = atoi(tok);
+		}
 		
 	} else {	
 		/* read names and convert into ids */
@@ -394,24 +397,17 @@ void do_wlan_add_cmd(int acserver, char *wtpIds, char *wtpNames, char * ssid, ch
  * Elena Agostini - 09/2014: WLAN add interface
  */
 void do_wlan_del_cmd(int acserver, char *wtpIds, char *wtpNames, char * radioID, char * wlanID)
-{	
-	int *wtps, n, i;
+{
 	struct version_info v_info;
-
-	printf("DEL cmd radioID: %s, wlanID: %s\n", radioID, wlanID);
-	
-	/* WTP work list */
-	wtps = get_id_list(wtpIds, wtpNames, &n);
-	
-	if (wtps == NULL) {
+	int wtpId;
+	if (wtpIds == NULL && wtpNames == NULL) {
 		fprintf(stderr, "Either a list of wtp ids or wtp names must be specified!\n");
 		return;
 	}
-
-	for (i = 0; i < n; i++) {
-		printf("invio a wtp %d\n", i);
-		WUMWTPwlanDel(acserver, wtps[i], radioID, wlanID, &v_info);
-	}
+	wtpId = (wtpIds != NULL) ? atoi(wtpIds) : WTP_name2id(wtpNames);
+	if (wtpId < 0) { fprintf(stderr, "Invalid WTP id\n"); return; }
+	printf("DEL cmd radioID: %s, wlanID: %s (wtp %d)\n", radioID, wlanID, wtpId);
+	WUMWTPwlanDel(acserver, wtpId, radioID, wlanID, &v_info);
 }
 
 int WTP_name2id(char *name)

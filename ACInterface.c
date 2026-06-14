@@ -666,7 +666,6 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 						else // One specific Wtp Case
 							CWWLANSetValues(wtpIndex, socketIndex, cmdWLAN);
 						
-						CW_FREE_OBJECT(cmdWLAN);
 						
 						break;
 						
