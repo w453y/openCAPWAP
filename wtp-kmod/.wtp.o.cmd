@@ -1,1 +1,0 @@
-cmd_/workdir3/openCAPWAP/wtp-kmod/wtp.o := arm-openwrt-linux-muslgnueabi-ld  -EL -z noexecstack     -r -o /workdir3/openCAPWAP/wtp-kmod/wtp.o /workdir3/openCAPWAP/wtp-kmod/main.o /workdir3/openCAPWAP/wtp-kmod/capwap.o /workdir3/openCAPWAP/wtp-kmod/capwap_private.o /workdir3/openCAPWAP/wtp-kmod/netlinkapp.o

@@ -450,6 +450,22 @@ static int sc_netlink_send_data(struct sk_buff *skb, struct genl_info *info)
         return 0;
 }
 
+/* sc_find_station — look up a STA by radioid + MAC in the session hash.
+ * Defined here (not in capwap_private.c) because it operates on the
+ * per-session station_list maintained by netlinkapp. */
+struct sc_station *sc_find_station(struct hlist_head *sta_head,
+                                   uint8_t radioid, uint8_t *mac)
+{
+        struct sc_station *sta;
+
+        hlist_for_each_entry_rcu(sta, sta_head, station_list) {
+                if (sta->radioid == radioid &&
+                    memcmp(&sta->mac, mac, ETH_ALEN) == 0)
+                        return sta;
+        }
+        return NULL;
+}
+
 /* CMD_ADD_STATION / CMD_DEL_STATION — future: update per-STA state */
 static int sc_netlink_add_station(struct sk_buff *skb, struct genl_info *info)
 {

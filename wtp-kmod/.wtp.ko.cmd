@@ -1,1 +1,0 @@
-cmd_/workdir3/openCAPWAP/wtp-kmod/wtp.ko := arm-openwrt-linux-muslgnueabi-ld -r  -EL -z noexecstack   --build-id  -T ./scripts/module-common.lds -T ./arch/arm/kernel/module.lds -o /workdir3/openCAPWAP/wtp-kmod/wtp.ko /workdir3/openCAPWAP/wtp-kmod/wtp.o /workdir3/openCAPWAP/wtp-kmod/wtp.mod.o;  true
