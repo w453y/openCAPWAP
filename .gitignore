@@ -6,3 +6,10 @@ AC
 WUA
 CWOpenSSLBio.c.orig
 core.*
+
+# DTLS certificates - environment-specific, never commit
+*.key
+*.crt
+*.pem
+# built binaries
+wum/wum

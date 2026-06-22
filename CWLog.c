@@ -112,6 +112,7 @@ __inline__ void CWVLog(const char *format, va_list args) {
 	//sprintf(logStr, "[CAPWAP::%s]\t\t %s\n", nowReadable, format);
 	sprintf(logStr, "[CAPWAP::%s]\t%08x\t %s\n", nowReadable, (unsigned int)CWThreadSelf(), format);
 
+	va_list args_copy; va_copy(args_copy, args);
 	if(gLogFile != NULL) {
 		char fileLine[256];
 		
@@ -120,7 +121,7 @@ __inline__ void CWVLog(const char *format, va_list args) {
 			fseek(gLogFile, 0L, SEEK_END);
 		#endif
 		
-		vsnprintf(fileLine, 255, logStr, args);
+	vsnprintf(fileLine, 255, logStr, args);
 	
 		if(!checkResetFile()) 
 		{
@@ -136,7 +137,8 @@ __inline__ void CWVLog(const char *format, va_list args) {
 		#endif
 	}
 #ifdef WRITE_STD_OUTPUT
-	vprintf(logStr, args);
+	vprintf(logStr, args_copy);
+	va_end(args_copy);
 #endif	
 	
 	CW_FREE_OBJECT(logStr);
@@ -180,7 +182,8 @@ __inline__ void CWDebugLog(const char *format, ...) {
 
 		va_start(args, format);
 		
-		if(gLogFile != NULL) {
+		va_list args_copy; va_copy(args_copy, args);
+	if(gLogFile != NULL) {
 			char fileLine[256];
 			
 			#ifndef CW_SINGLE_THREAD
@@ -188,7 +191,7 @@ __inline__ void CWDebugLog(const char *format, ...) {
 				fseek(gLogFile, 0L, SEEK_END);
 			#endif
 			
-			vsnprintf(fileLine, 255, logStr, args);
+	vsnprintf(fileLine, 255, logStr, args);
 
 			if(!checkResetFile()) 
 			{
@@ -205,7 +208,8 @@ __inline__ void CWDebugLog(const char *format, ...) {
 			#endif
 		}
 #ifdef WRITE_STD_OUTPUT	
-		vprintf(logStr, args);
+		vprintf(logStr, args_copy);
+	va_end(args_copy);
 #endif
 		
 		va_end(args);

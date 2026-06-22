@@ -64,7 +64,7 @@ extern CWNetworkLev3Service gNetworkPreferredFamily;
 
 #define CWUseSockNtop(sa, block) 		{ 						\
 							char __str[128];			\
-							char *str; str = sock_ntop_r(((struct sockaddr*)(sa)), __str);\
+							char *str; str = sock_ntop_r(((struct sockaddr*)(sa)), __str); if(str==NULL){str="(null)";}\
 							{block}					\
 						}
 

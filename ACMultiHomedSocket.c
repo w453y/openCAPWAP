@@ -173,19 +173,19 @@ CWBool CWNetworkInitSocketServerMultiHomed(CWMultiHomedSocket *sockPtr,
 		/* bind address */
 		sock_set_port_cw(ifi->ifi_addr, htons(port));
 		
+		if(ifi->ifi_addr == NULL) { close(sock); continue; }
 		struct sockaddr_in * tmpAddr =  (struct sockaddr_in *) ifi->ifi_addr;
 		CWLog("ip: %s port: %d", inet_ntoa(tmpAddr->sin_addr), htons(tmpAddr->sin_port));
 		
 		if(bind(sock, (struct sockaddr*) ifi->ifi_addr, CWNetworkGetAddressSize((CWNetworkLev4Address*)ifi->ifi_addr)) < 0) {
 
 			close(sock);
-			CWUseSockNtop(ifi->ifi_addr, CWDebugLog("failed %s", str););
+			CWDebugLog("failed bind");
 			continue;
 			/* CWNetworkRaiseSystemError(CW_ERROR_CREATING); */
 		}
 		
-		CWUseSockNtop(ifi->ifi_addr, 
-			      CWLog("bound %s (%d, %s)", str, ifi->ifi_index, ifi->ifi_name););
+		{ struct sockaddr_in *_a=(struct sockaddr_in*)ifi->ifi_addr; CWLog("bound %d.%d.%d.%d (%d, %s)", ((unsigned char*)&_a->sin_addr)[0],((unsigned char*)&_a->sin_addr)[1],((unsigned char*)&_a->sin_addr)[2],((unsigned char*)&_a->sin_addr)[3], ifi->ifi_index, ""); }
 		
 		/* store socket inside multihomed socket */
 		CW_CREATE_OBJECT_ERR(p, CWMultiHomedInterface, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
@@ -234,13 +234,12 @@ CWBool CWNetworkInitSocketServerMultiHomed(CWMultiHomedSocket *sockPtr,
 		
 		if(bind(sock, (struct sockaddr*) ifi->ifi_addr, CWNetworkGetAddressSize((CWNetworkLev4Address*)ifi->ifi_addr)) < 0) {
 			close(sock);
-			CWUseSockNtop(ifi->ifi_addr, CWDebugLog("failed %s", str););
+			CWDebugLog("failed bind");
 			continue;
 			/* CWNetworkRaiseSystemError(CW_ERROR_CREATING); */
 		}
 		
-		CWUseSockNtop(ifi->ifi_addr, 
-			      CWLog("Data channel bound %s (%d, %s)", str, ifi->ifi_index, ifi->ifi_name););
+		{ struct sockaddr_in *_a=(struct sockaddr_in*)ifi->ifi_addr; CWLog("Data channel bound %d.%d.%d.%d (%d, %s)", ((unsigned char*)&_a->sin_addr)[0],((unsigned char*)&_a->sin_addr)[1],((unsigned char*)&_a->sin_addr)[2],((unsigned char*)&_a->sin_addr)[3], ifi->ifi_index, ""); }
 			      
 		CW_COPY_NET_ADDR_PTR(&(p->dataAddr), ifi->ifi_addr);
 		
@@ -286,11 +285,9 @@ CWBool CWNetworkInitSocketServerMultiHomed(CWMultiHomedSocket *sockPtr,
 				}
 			}
 			
-			CWUseSockNtop(ifi->ifi_brdaddr,
-				      CWLog("bound %s (%d, %s)", 
-				      str,
-				      ifi->ifi_index,
-				      ifi->ifi_name););
+			{ struct sockaddr_in *_b=(struct sockaddr_in*)ifi->ifi_brdaddr; CWLog("bound brd %d.%d.%d.%d (%d, %s)", ((unsigned char*)&_b->sin_addr)[0],((unsigned char*)&_b->sin_addr)[1],((unsigned char*)&_b->sin_addr)[2],((unsigned char*)&_b->sin_addr)[3], ifi->ifi_index, "");
+                    }
+
 			
 			/* store socket inside multihomed socket */
 			
