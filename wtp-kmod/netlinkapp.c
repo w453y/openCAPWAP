@@ -296,8 +296,12 @@ static int sc_netlink_create(struct sk_buff *skb, struct genl_info *info)
                 cfg->use_udp_checksums    = 1;
                 cfg->use_udp6_tx_checksums = 1;
                 cfg->use_udp6_rx_checksums = 1;
-                /* Copy IP addresses into the udp_port_cfg union fields */
-                memcpy(&cfg->local_ip, &l4->sin_addr, sizeof(struct in_addr));
+                /* Bind to INADDR_ANY (local_ip left zero) so the socket
+                 * receives inbound CAPWAP on the local port regardless of
+                 * which local address the packet is destined to. Binding to
+                 * a specific local_ip caused inbound frames to miss the
+                 * socket (UDP NoPorts), dropping the entire DL path. */
+                memset(&cfg->local_ip, 0, sizeof(struct in_addr));
                 memcpy(&cfg->peer_ip, &p4->sin_addr, sizeof(struct in_addr));
         }
 
@@ -469,13 +473,89 @@ struct sc_station *sc_find_station(struct hlist_head *sta_head,
 /* CMD_ADD_STATION / CMD_DEL_STATION — future: update per-STA state */
 static int sc_netlink_add_station(struct sk_buff *skb, struct genl_info *info)
 {
+        struct sc_net            *sc;
+        struct sc_capwap_session *session;
+        struct sc_station        *sta;
+        uint8_t                   radioid, wlanid;
+        uint8_t                  *mac;
+        uint32_t                  hash, flags;
+        struct hlist_head        *sta_head;
+
         TRACEKMOD("### sc_netlink_add_station\n");
+
+        if (!info->attrs[NLSMARTCAPWAP_ATTR_RADIOID] ||
+            !info->attrs[NLSMARTCAPWAP_ATTR_MAC]     ||
+            !info->attrs[NLSMARTCAPWAP_ATTR_WLANID])
+                return -EINVAL;
+
+        sc      = net_generic(genl_info_net(info), sc_net_id);
+        session = &sc->sc_acsession;
+
+        radioid = nla_get_u8(info->attrs[NLSMARTCAPWAP_ATTR_RADIOID]);
+        wlanid  = nla_get_u8(info->attrs[NLSMARTCAPWAP_ATTR_WLANID]);
+        mac     = nla_data(info->attrs[NLSMARTCAPWAP_ATTR_MAC]);
+        flags   = info->attrs[NLSMARTCAPWAP_ATTR_FLAGS]
+                  ? nla_get_u32(info->attrs[NLSMARTCAPWAP_ATTR_FLAGS]) : 0;
+
+        hash     = jhash(mac, ETH_ALEN, radioid) % STA_HASH_SIZE;
+        sta_head = &session->station_list[hash];
+
+        sta = sc_find_station(sta_head, radioid, mac);
+        if (sta) {
+                /* Already present — update wlanid/flags */
+                sta->wlanid = wlanid;
+                sta->flags  = flags;
+                pr_info("wtp-kmod: update station %pM radio=%u wlan=%u\n",
+                        mac, radioid, wlanid);
+                return 0;
+        }
+
+        sta = kmalloc(sizeof(struct sc_station), GFP_KERNEL);
+        if (!sta)
+                return -ENOMEM;
+
+        sta->radioid = radioid;
+        memcpy(&sta->mac, mac, ETH_ALEN);
+        sta->wlanid  = wlanid;
+        sta->flags   = flags;
+
+        hlist_add_head_rcu(&sta->station_list, sta_head);
+        pr_info("wtp-kmod: add station %pM radio=%u wlan=%u\n",
+                mac, radioid, wlanid);
         return 0;
 }
 
 static int sc_netlink_del_station(struct sk_buff *skb, struct genl_info *info)
 {
+        struct sc_net            *sc;
+        struct sc_capwap_session *session;
+        struct sc_station        *sta;
+        uint8_t                   radioid;
+        uint8_t                  *mac;
+        uint32_t                  hash;
+        struct hlist_head        *sta_head;
+
         TRACEKMOD("### sc_netlink_del_station\n");
+
+        if (!info->attrs[NLSMARTCAPWAP_ATTR_RADIOID] ||
+            !info->attrs[NLSMARTCAPWAP_ATTR_MAC])
+                return -EINVAL;
+
+        sc      = net_generic(genl_info_net(info), sc_net_id);
+        session = &sc->sc_acsession;
+
+        radioid  = nla_get_u8(info->attrs[NLSMARTCAPWAP_ATTR_RADIOID]);
+        mac      = nla_data(info->attrs[NLSMARTCAPWAP_ATTR_MAC]);
+        hash     = jhash(mac, ETH_ALEN, radioid) % STA_HASH_SIZE;
+        sta_head = &session->station_list[hash];
+
+        sta = sc_find_station(sta_head, radioid, mac);
+        if (!sta)
+                return -ENOENT;
+
+        hlist_del_rcu(&sta->station_list);
+        kfree_rcu(sta, rcu_head);
+        pr_info("wtp-kmod: del station %pM radio=%u\n", mac, radioid);
         return 0;
 }
 

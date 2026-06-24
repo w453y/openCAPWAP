@@ -51,7 +51,7 @@ static int send_cmd(int cmd, struct nl_msg *msg)
 int main(int argc, char *argv[])
 {
     if (argc < 4) {
-        fprintf(stderr, "Usage: %s <ath1_ifindex> <local_ip> <peer_ip>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <ath1_ifindex> <local_ip> <peer_ip> [sta_mac]\n", argv[0]);
         fprintf(stderr, "  Get ifindex: ip link show ath1 | head -1 | awk '{print $1}' | tr -d ':'\n");
         return 1;
     }
@@ -59,6 +59,17 @@ int main(int argc, char *argv[])
     uint32_t ifindex  = atoi(argv[1]);
     const char *local_str = argv[2];
     const char *peer_str  = argv[3];
+    const char *sta_mac_str = (argc > 4) ? argv[4] : NULL;  /* optional STA MAC */
+
+    uint8_t sta_mac[6] = {0};
+    if (sta_mac_str) {
+        if (sscanf(sta_mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                   &sta_mac[0],&sta_mac[1],&sta_mac[2],
+                   &sta_mac[3],&sta_mac[4],&sta_mac[5]) != 6) {
+            fprintf(stderr, "Invalid STA MAC: %s\n", sta_mac_str);
+            return 1;
+        }
+    }
 
     /* Build sockaddr_storage for local + peer (IPv4, port 5247) */
     struct sockaddr_storage local_addr, peer_addr;
@@ -154,6 +165,20 @@ int main(int argc, char *argv[])
         if (send_cmd(NLSMARTCAPWAP_CMD_JOIN_NETDEV, msg) < 0) return 1;
         nlmsg_free(msg);
         printf("CMD_JOIN_NETDEV OK (ifindex=%u)\n", ifindex);
+    }
+
+    /* 4. CMD_ADD_STATION (optional, if STA MAC given) */
+    if (sta_mac_str) {
+        struct nl_msg *msg = nlmsg_alloc();
+        genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, family_id, 0, 0,
+                    NLSMARTCAPWAP_CMD_ADD_STATION, 1);
+        nla_put_u8 (msg, NLSMARTCAPWAP_ATTR_RADIOID, 1);
+        nla_put_u8 (msg, NLSMARTCAPWAP_ATTR_WLANID,  1);
+        nla_put    (msg, NLSMARTCAPWAP_ATTR_MAC, 6, sta_mac);
+        nla_put_u32(msg, NLSMARTCAPWAP_ATTR_FLAGS, 0);
+        if (send_cmd(NLSMARTCAPWAP_CMD_ADD_STATION, msg) < 0) return 1;
+        nlmsg_free(msg);
+        printf("CMD_ADD_STATION OK (%s radio=1 wlan=1)\n", sta_mac_str);
     }
 
     printf("SUCCESS — check dmesg on AP for rx_handler registration\n");

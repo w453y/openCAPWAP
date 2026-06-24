@@ -2,7 +2,7 @@
 #define __KMOD_CONFIG_HEADER__
 
 /* Uncomment to enable verbose kernel log tracing */
-/* #define DEBUGKMOD 1 */
+#define DEBUGKMOD 1
 
 #ifdef DEBUGKMOD
 #define TRACEKMOD(s, args...)   printk(KERN_DEBUG "wtp-kmod: " s, ##args)
