@@ -50,30 +50,37 @@
 
 
 
+/* Resolve the WTP's live AP VAP interface name at runtime.
+ * Never hardcode "ath1"/"monitor0" - WTPRadio.c builds the name from
+ * WTP_NAME_WLAN_PREFIX and it varies by device. NULL if AP not up. */
+const char *CWWTPVapIfName(void){
+	if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL &&
+	    WTPGlobalBSSList[0]->interfaceInfo != NULL &&
+	    WTPGlobalBSSList[0]->interfaceInfo->ifName != NULL)
+		return WTPGlobalBSSList[0]->interfaceInfo->ifName;
+	return NULL;
+}
+
 int CWWTPSendFrame(unsigned char *buf, int len){
-	/* Option B: deliver downlink via ath1 (real AP TX path).
-	 * Uses a persistent AF_PACKET socket (opened once, reused for all
-	 * downlink frames) to avoid the 100-1800ms latency spike from
-	 * socket open/close on every inject call.
-	 * Frame layout from AC (fromDS, non-QoS, 24-byte 802.11 header):
-	 *   [FC 2][DUR 2][Addr1=DA 6][Addr2=BSSID 6][Addr3=SA 6][SeqCtl 2]
-	 *   [LLC/SNAP 8: aa aa 03 00 00 00 <ethertype 2>][payload ...]
-	 * Decap to 802.3: [DA 6][SA 6][ethertype 2][payload] */
-	const int HDR = 24, SNAP = 8;
+	/* 802.3 passthrough: the AC now sends the raw Ethernet (802.3) frame
+	 * on the data channel. We write it straight to ath1 (the real AP TX
+	 * path) with no 802.11->802.3 decap. Persistent AF_PACKET socket on
+	 * ath1, reused across calls to avoid per-frame open/close latency. */
 	static int _ath1_sock = -1;
 	static struct sockaddr_ll _ath1_sll;
-	unsigned char f8023[2048];
-	int flen;
-	unsigned short etype;
-	int plen;
 
-	if (len < HDR + SNAP) {
+	if (len < 14) {
 		CWDebugLog("CWWTPSendFrame: frame too short (%d)", len);
 		return -1;
 	}
 
-	/* Lazy-init the persistent socket */
 	if (_ath1_sock < 0) {
+		const char *vap = CWWTPVapIfName();
+		unsigned int ifidx;
+		if (vap == NULL || (ifidx = if_nametoindex(vap)) == 0) {
+			CWDebugLog("CWWTPSendFrame: VAP not ready yet");
+			return -1;
+		}
 		_ath1_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 		if (_ath1_sock < 0) {
 			CWDebugLog("CWWTPSendFrame: socket() failed errno=%d", errno);
@@ -81,38 +88,36 @@ int CWWTPSendFrame(unsigned char *buf, int len){
 		}
 		memset(&_ath1_sll, 0, sizeof(_ath1_sll));
 		_ath1_sll.sll_family  = AF_PACKET;
-		_ath1_sll.sll_ifindex = if_nametoindex("ath1");
+		_ath1_sll.sll_ifindex = ifidx;
 		_ath1_sll.sll_halen   = 6;
-		CWDebugLog("CWWTPSendFrame: ath1 socket opened fd=%d ifindex=%d",
+		{
+			struct ifreq _ifr; memset(&_ifr, 0, sizeof(_ifr));
+			strncpy(_ifr.ifr_name, vap, IFNAMSIZ-1);
+			setsockopt(_ath1_sock, SOL_SOCKET, SO_BINDTODEVICE, &_ifr, sizeof(_ifr));
+		}
+		CWDebugLog("CWWTPSendFrame: VAP socket opened fd=%d ifindex=%d (bound by name)",
 		           _ath1_sock, _ath1_sll.sll_ifindex);
 	}
 
-	etype  = ((unsigned short)buf[HDR+6] << 8) | buf[HDR+7];
-	plen   = len - HDR - SNAP;
-	flen   = 14 + plen;
-	if (flen > (int)sizeof(f8023)) {
-		CWDebugLog("CWWTPSendFrame: frame too large (%d)", flen);
-		return -1;
+	/* Re-resolve the VAP ifindex each send: a wifi restart can give
+	 * ath1 a new ifindex, which would make the cached sll_ifindex
+	 * stale and sendto fail. Cheap lookup keeps TX on the live VAP. */
+	{
+		const char *_vap = CWWTPVapIfName();
+		unsigned int _cur = _vap ? if_nametoindex(_vap) : 0;
+		if (_cur != 0) _ath1_sll.sll_ifindex = _cur;
 	}
+	/* Destination MAC = first 6 bytes of the 802.3 frame */
+	memcpy(_ath1_sll.sll_addr, buf, 6);
 
-	memcpy(f8023,      buf + 4,  6);  /* DA  = Addr1 */
-	memcpy(f8023 + 6,  buf + 16, 6);  /* SA  = Addr3 */
-	f8023[12] = (etype >> 8) & 0xff;
-	f8023[13] =  etype       & 0xff;
-	memcpy(f8023 + 14, buf + HDR + SNAP, plen);
-
-	/* Update DA in sockaddr for this frame */
-	memcpy(_ath1_sll.sll_addr, f8023, 6);
-
-	if (sendto(_ath1_sock, f8023, flen, 0,
+	if (sendto(_ath1_sock, buf, len, 0,
 	           (struct sockaddr *)&_ath1_sll, sizeof(_ath1_sll)) < 0) {
 		CWDebugLog("CWWTPSendFrame: sendto ath1 failed errno=%d", errno);
-		/* Socket may be stale - close so it re-opens next call */
 		close(_ath1_sock);
 		_ath1_sock = -1;
 		return -1;
 	}
-	CWDebugLog("CWWTPSendFrame: sent %d bytes via ath1", flen);
+	CWDebugLog("CWWTPSendFrame: sent %d bytes (802.3) via ath1", len);
 	return 1;
 }
 
@@ -244,7 +249,32 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 	addr.sll_family = AF_PACKET;
 //	addr.sll_protocol = htons(ETH_P_ALL);
 //	addr.sll_pkttype = PACKET_HOST;
-	addr.sll_ifindex = if_nametoindex("monitor0"); //if_nametoindex(gRadioInterfaceName_0);
+	{
+		/* Thread setup (pre-loop): the AP VAP may not be up yet at
+		 * startup. Wait for it rather than continue (no loop here). */
+		const char *vap = NULL;
+		unsigned int _vapidx = 0;
+		int _waited = 0;
+		while ((vap = CWWTPVapIfName()) == NULL || (_vapidx = if_nametoindex(vap)) == 0) {
+			if ((_waited++ % 10) == 0)
+				CWLog("[802.3] waiting for AP VAP to come up...");
+			sleep(1);
+		}
+		addr.sll_ifindex = _vapidx;
+		CWLog("[802.3] capture socket binding to VAP %s ifindex %u", vap, _vapidx);
+		/* Bind by NAME too: SO_BINDTODEVICE makes the kernel re-resolve
+		 * the interface on every packet, so RX keeps working when the
+		 * VAP is recreated with a new ifindex by a wifi restart. This
+		 * is the durable binding; the sll_ifindex bind below is initial. */
+		{
+			struct ifreq _ifr; memset(&_ifr, 0, sizeof(_ifr));
+			strncpy(_ifr.ifr_name, vap, IFNAMSIZ-1);
+			if (setsockopt(gRawSock, SOL_SOCKET, SO_BINDTODEVICE, &_ifr, sizeof(_ifr)) < 0)
+				CWLog("[802.3] SO_BINDTODEVICE(%s) failed: %s", vap, strerror(errno));
+			else
+				CWLog("[802.3] capture bound to device %s by NAME (follows ifindex)", vap);
+		}
+	}
  
 	 
 	if ((bind(gRawSock, (struct sockaddr*)&addr, sizeof(addr)))<0) {
@@ -252,7 +282,7 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
  		CWExitThread();
  	}
  
-	if (!getMacAddr(gRawSock, "monitor0", macAddr)){
+	if (!getMacAddr(gRawSock, (char*)CWWTPVapIfName(), macAddr)){
  		CWDebugLog("THR FRAME: Ioctl error");
 		EXIT_FRAME_THREAD(gRawSock);
  	}
@@ -266,13 +296,7 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			   strerror(errno));
 	}
 
-	/* Option B: recv timeout so the capture loop wakes periodically and can
-	 * detect monitor0 being destroyed/recreated by the ADD_WLAN wifi restart. */
-	{
-		struct timeval _tv; _tv.tv_sec = 2; _tv.tv_usec = 0;
-		setsockopt(gRawSock, SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv));
-	}
-	unsigned int gMonIfIndex = if_nametoindex("monitor0");
+	unsigned int gMonIfIndex = 0;  /* tracks live VAP ifindex */
 
 	nodeAVL * tmpNodeSta=NULL;
 	
@@ -296,29 +320,78 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 		//EXIT_FRAME_THREAD(gRawSock);
 	}
 
- 	CW_REPEAT_FOREVER{
+ 	{
+		/* periodic wakeups so the ifindex-follow check below runs even
+		 * when there is no traffic (recvfrom would otherwise block). */
+		struct timeval _tv; _tv.tv_sec = 1; _tv.tv_usec = 0;
+		setsockopt(gRawSock, SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv));
+	}
+	CW_REPEAT_FOREVER{
+		/* Follow the VAP across wifi restarts: addwlan does wifi down/up
+		 * which gives the VAP a new ifindex. Rebind if it changed. */
+		{
+			const char *_vap = CWWTPVapIfName();
+			unsigned int _cur = _vap ? if_nametoindex(_vap) : 0;
+			if (_cur != 0 && _cur != gMonIfIndex) {
+				struct sockaddr_ll _a; memset(&_a,0,sizeof(_a));
+				_a.sll_family = AF_PACKET; _a.sll_ifindex = _cur;
+				if (bind(gRawSock,(struct sockaddr*)&_a,sizeof(_a))==0) {
+					gMonIfIndex = _cur;
+					CWLog("[802.3] capture rebound to VAP %s ifindex %u", _vap, _cur);
+				}
+			}
+		}
 		n = recvfrom(gRawSock,buffer,sizeof(buffer),0,NULL,NULL);
 
 		if(n<0){
-			unsigned int _cur = if_nametoindex("monitor0");
-			if(_cur != 0 && _cur != gMonIfIndex){
-				struct sockaddr_ll _a;
-				memset(&_a, 0, sizeof(_a));
-				_a.sll_family = AF_PACKET;
-				_a.sll_ifindex = _cur;
-				if(bind(gRawSock, (struct sockaddr*)&_a, sizeof(_a)) == 0){
-					gMonIfIndex = _cur;
-					CWLog("[OptionB] Rebound capture socket to monitor0 ifindex %u", _cur);
-				}
-				memset(&addr_inject, 0, sizeof(addr_inject));
-				addr_inject.sll_family = AF_PACKET;
-				addr_inject.sll_ifindex = _cur;
-				bind(rawInjectSocket, (struct sockaddr*)&addr_inject, sizeof(addr_inject));
-			}
+			/* timeout (SO_RCVTIMEO) or error: loop back so the
+			 * ifindex-follow check at the top can rebind if needed. */
 			continue;
 		}
 
 		if (!wtpInRunState){
+			continue;
+		}
+
+		/* === 802.3 passthrough (Option B, no monitor mode) ===
+		 * ath1 (the VAP) delivers complete 802.3 Ethernet frames for OUR
+		 * BSS only. Push the raw frame onto the data channel tagged
+		 * CW_IEEE_802_3_FRAME_TYPE. No radiotap, no 802.11 parse, no
+		 * BSSID filter, no reframing. */
+		{
+			/* === 802.3 uplink filter (runtime, no hardcoded MAC) ===
+			 * The VAP delivers the AP's OWN frames too (its dhcp, etc).
+			 * Forwarding those into the data channel floods/corrupts the
+			 * DTLS data session. Forward ONLY real client uplink:
+			 *   - drop frames whose SOURCE is multicast/broadcast
+			 *   - drop frames sourced by the AP's own VAP MAC
+			 *     (compare low 5 bytes; qca-wifi varies the first octet) */
+			{
+				unsigned char *_sa = (unsigned char *)buffer + 6;
+				if (_sa[0] & 0x01) continue;  /* mcast/bcast source */
+				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL &&
+				    WTPGlobalBSSList[0]->interfaceInfo != NULL &&
+				    WTPGlobalBSSList[0]->interfaceInfo->MACaddr != NULL &&
+				    memcmp(_sa + 1, WTPGlobalBSSList[0]->interfaceInfo->MACaddr + 1, ETH_ALEN - 1) == 0)
+					continue;  /* AP's own frame */
+			}
+
+			CWProtocolMessage *f8023 = NULL;
+			CWBindingDataListElement *le8023 = NULL;
+
+			CW_CREATE_OBJECT_ERR(f8023, CWProtocolMessage, EXIT_FRAME_THREAD(gRawSock););
+			CW_CREATE_PROTOCOL_MESSAGE(*f8023, n, EXIT_FRAME_THREAD(gRawSock););
+			memcpy(f8023->msg, buffer, n);
+			f8023->offset = n;
+			f8023->data_msgType = CW_IEEE_802_3_FRAME_TYPE;
+
+			CW_CREATE_OBJECT_ERR(le8023, CWBindingDataListElement, EXIT_FRAME_THREAD(gRawSock););
+			le8023->frame = f8023;
+			le8023->bindingValues = NULL;
+
+			CWLockSafeList(gFrameList);
+			CWAddElementToSafeListTail(gFrameList, le8023, sizeof(CWBindingDataListElement));
+			CWUnlockSafeList(gFrameList);
 			continue;
 		}
 		

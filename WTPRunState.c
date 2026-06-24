@@ -308,15 +308,15 @@ manager_data_failure:
 	CWLog("[DTLS] Start Data Session with AC %s:%d", inet_ntoa(tmpAdd->sin_addr), ntohs(tmpAdd->sin_port));
 
 	if(!CWErr(CWSecurityInitSessionClient(gWTPDataSocket,
-					      gACAddressDataChannel,
-					      gPacketReceiveDataList,
-					      gWTPSecurityContext,
-					      &gWTPSessionData,
-					      &gWTPPathMTU))) {
-		
-		//Elena Agostini - 07/2014
-		goto CLEAR_DATA_RUN_STATE;
-	}
+                                              gACAddressDataChannel,
+                                              gPacketReceiveDataList,
+                                              gWTPSecurityContext,
+                                              &gWTPSessionData,
+                                              &gWTPPathMTU))) {
+
+                //Elena Agostini - 07/2014
+                goto CLEAR_DATA_RUN_STATE;
+        }
 	
 #endif
 
@@ -394,41 +394,11 @@ manager_data_failure:
 				}else if (msgPtr.data_msgType == CW_IEEE_802_3_FRAME_TYPE) {
 
 					CWDebugLog("DATA Frame 802.3 (%d bytes) received from AC",msgPtr.offset);
-					
-					/*MAC - begin*/
-					rawSockaddr.sll_addr[0]  = msgPtr.msg[0];		
-					rawSockaddr.sll_addr[1]  = msgPtr.msg[1];		
-					rawSockaddr.sll_addr[2]  = msgPtr.msg[2];
-					rawSockaddr.sll_addr[3]  = msgPtr.msg[3];
-					rawSockaddr.sll_addr[4]  = msgPtr.msg[4];
-					rawSockaddr.sll_addr[5]  = msgPtr.msg[5];
-					/*MAC - end*/
-					rawSockaddr.sll_addr[6]  = 0x00;/*not used*/
-					rawSockaddr.sll_addr[7]  = 0x00;/*not used*/
-					
-					rawSockaddr.sll_hatype   = htons(msgPtr.msg[12]<<8 | msgPtr.msg[13]);
-					
-					struct sockaddr_ll addr;
-					int gRawSockLocal;
-					
-					if ((gRawSockLocal=socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL)))<0) 	{
-						CWDebugLog("THR FRAME: Error creating socket");
-						CWExitThread();
-					}
 
-					memset(&addr, 0, sizeof(addr));
-					addr.sll_family = AF_PACKET;
-				//	addr.sll_protocol = htons(ETH_P_ALL);
-				//	addr.sll_pkttype = PACKET_HOST;
-					addr.sll_ifindex = if_nametoindex("monitor0"); //if_nametoindex(gRadioInterfaceName_0);
-				 
-					 
-					if ((bind(gRawSockLocal, (struct sockaddr*)&addr, sizeof(addr)))<0) {
-						CWDebugLog("THR FRAME: Error binding socket");
-						CWExitThread();
-					}
-				 
-					n = sendto(gRawSockLocal,msgPtr.msg ,msgPtr.offset,0,(struct sockaddr*)&rawSockaddr, sizeof(rawSockaddr));
+					/* 802.3 passthrough: write the raw Ethernet frame straight to
+					 * ath1 via CWWTPSendFrame (persistent AF_PACKET socket). No
+					 * the VAP (ath1) via CWWTPSendFrame, no 802.11 reframing. */
+					CWWTPSendFrame((unsigned char*)msgPtr.msg, msgPtr.offset);
 					
 				}else if(msgPtr.data_msgType == CW_IEEE_802_11_FRAME_TYPE) {
 				

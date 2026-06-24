@@ -326,6 +326,26 @@ CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * int
 		CWLog("[qca-wifi] Restarting wifi with SSID: %s", interfaceInfo->SSID);
 		system(cmd);
 		sleep(3);
+		/* netifd's "wifi up" re-bridges the VAP into the LAN bridge
+		 * (local-MAC wiring). For split-MAC data tunneling the VAP
+		 * must be standalone so only our CAPWAP capture consumes its
+		 * frames. Detach from whatever bridge it landed in - bridge
+		 * name resolved at runtime via CWGetBridge, nothing hardcoded. */
+		{
+			char _brname[IFNAMSIZ];
+			int _retries = 0;
+			int _brsock = socket(AF_INET, SOCK_STREAM, 0);
+			while (_retries++ < 10) {
+				if (CWGetBridge(_brname, interfaceInfo->ifName) == CW_TRUE) {
+					unsigned int _vapidx = if_nametoindex(interfaceInfo->ifName);
+					if (CWDelBridgeInterface(_brsock, _brname, _vapidx) == CW_TRUE)
+						CWLog("[802.3] detached VAP %s from bridge %s (split-MAC tunnel)", interfaceInfo->ifName, _brname);
+					break;
+				}
+				usleep(300000);
+			}
+			if (_brsock >= 0) close(_brsock);
+		}
 	}
 
 	
