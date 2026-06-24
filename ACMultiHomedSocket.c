@@ -676,10 +676,10 @@ CWBool CWNetworkUnsafeMultiHomed(CWMultiHomedSocket *sockPtr,
 										ETH_ALEN);
 							
 										CW_CREATE_OBJECT_ERR(frame, CWProtocolMessage, return 0;);
-							CW_CREATE_PROTOCOL_MESSAGE(*frame, readByest80211, return 0;);
-							memcpy(frame->msg, buf80211, readByest80211);
-							frame->offset = readByest80211;
-							frame->data_msgType = CW_IEEE_802_11_FRAME_TYPE;
+							CW_CREATE_PROTOCOL_MESSAGE(*frame, readBytes, return 0;);
+							memcpy(frame->msg, buf, readBytes);
+							frame->offset = readBytes;
+							frame->data_msgType = CW_IEEE_802_3_FRAME_TYPE;
 
 							/* Skip send if DTLS session was invalidated */
 							if(gWTPs[indexWTP].sessionData == NULL) {
@@ -767,10 +767,10 @@ CWBool CWNetworkUnsafeMultiHomed(CWMultiHomedSocket *sockPtr,
 		{
 //			CWLog("NON BROADCAST. Invio a WTP %d", WTPIndexFromSta);
 			CW_CREATE_OBJECT_ERR(frame, CWProtocolMessage, return 0;);
-			CW_CREATE_PROTOCOL_MESSAGE(*frame, readByest80211, return 0;);
-			memcpy(frame->msg, buf80211, readByest80211);
-			frame->offset = readByest80211;
-			frame->data_msgType = CW_IEEE_802_11_FRAME_TYPE;
+			CW_CREATE_PROTOCOL_MESSAGE(*frame, readBytes, return 0;);
+			memcpy(frame->msg, buf, readBytes);
+			frame->offset = readBytes;
+			frame->data_msgType = CW_IEEE_802_3_FRAME_TYPE;
 
 			if(!CWAssembleDataMessage(&completeMsgPtr, 
 								  &fragmentsNum, 

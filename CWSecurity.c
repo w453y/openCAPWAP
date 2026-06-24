@@ -239,7 +239,8 @@ CWBool CWSecurityInitSessionClient(CWSocket sock,
 			ERR_error_string(ERR_get_error(), _ebuf);
 			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
 			SSL_free(*sessionPtr);
-			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
+				*sessionPtr = NULL;  /* avoid use-after-free: caller holds this ptr */
+				return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
 		}
 	}
 	CWDebugLog("SSL Handshake OK!");
@@ -284,6 +285,12 @@ CWBool CWSecurityReceive(CWSecuritySession session,
 			 int len,
 			 int *readBytesPtr) {
 
+
+	/* Guard against a freed/NULL session (handshake failure or teardown
+	 * race) to prevent an SSL_read() use-after-free crash. */
+	if (session == NULL) {
+		return CWErrorRaise(CW_ERROR_GENERAL, NULL);
+	}
 
 	{
 		int _r = SSL_read(session, buf, len);
@@ -380,6 +387,7 @@ CWBool CWSecurityInitSessionServer(CWWTPManager* pWtp,
 			ERR_error_string(ERR_get_error(), _ebuf);
 			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
 			SSL_free(*sessionPtr);
+			*sessionPtr = NULL;  /* avoid use-after-free: caller holds this ptr */
 			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
 		}
 	}
@@ -475,6 +483,7 @@ CWBool CWSecurityInitSessionServerDataChannel(CWWTPManager* pWtp,
 			ERR_error_string(ERR_get_error(), _ebuf);
 			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
 			SSL_free(*sessionPtr);
+			*sessionPtr = NULL;  /* avoid use-after-free: caller holds this ptr */
 			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
 		}
 	}
@@ -570,6 +579,7 @@ CWBool CWSecurityInitGenericSessionServerDataChannel(CWSafeList packetDataList,
 			ERR_error_string(ERR_get_error(), _ebuf);
 			CWLog("Handshake failed: %s errno=%d", _ebuf, errno);
 			SSL_free(*sessionPtr);
+			*sessionPtr = NULL;  /* avoid use-after-free: caller holds this ptr */
 			return CWErrorRaise(CW_ERROR_GENERAL, _ebuf);
 		}
 	}

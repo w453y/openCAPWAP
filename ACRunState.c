@@ -2580,7 +2580,16 @@ CW_THREAD_RETURN_TYPE CWACReceiveDataChannel(void *arg) {
 			if(countPacketDataList > 0) {
 				// ... li legge cifrati ... 
 	//			CWLog("+++ Thread DTLS Session Data. %s:%d, socket: %d. Ricevuto pacchetto dati.", inet_ntoa(tmpAdd->sin_addr), ntohs(tmpAdd->sin_port), dataSocket);
-				if(!CWErr(CWSecurityReceive(gWTPs[i].sessionData,
+				/* Snapshot session; skip iteration if a teardown NULLed it.
+                                 * Do NOT break the thread - a RUN-state
+                                 * re-handshake transiently resets it. */
+                                if(gWTPs[i].sessionData == NULL) {
+                                        CWDebugLog("sessionData NULL - skipping this receive");
+                                        CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
+                                        usleep(50000);
+                                        continue;
+                                }
+                                if(!CWErr(CWSecurityReceive(gWTPs[i].sessionData,
 											gWTPs[i].buf,
 											CW_BUFFER_SIZE - 1,
 											&readBytes)))
