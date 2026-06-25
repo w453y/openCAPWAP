@@ -37,6 +37,7 @@
 
  
 #include "CWAC.h"
+#include "CWVlan.h"
 
 #include "common.h"
 #include "ieee802_11_defs.h"
@@ -642,6 +643,7 @@ CWBool CWNetworkUnsafeMultiHomed(CWMultiHomedSocket *sockPtr,
 		int WTPIndexFromSta = -1;
 		int indexWTP, indexRadio, indexWlan;
 //Elena Agostini - 11/2014: Decode Ethernet to 802.11 with AVL
+		readBytes = CWVlanStrip(buf, readBytes); /* downlink: strip 802.1Q before client */
 		int readByest80211 = CWConvertDataFrame_8023_to_80211(buf, readBytes, buf80211, &(WTPIndexFromSta));
 /*
  * OLD VERSION

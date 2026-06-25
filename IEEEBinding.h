@@ -379,6 +379,7 @@ typedef struct WUMWLANCmdParameters {
 	int wlanID;
 	int tunnelMode;
 	char * ssid;
+	int vlan;
 } WUMWLANCmdParameters;
 
 typedef struct CWFrameProbeRequest {

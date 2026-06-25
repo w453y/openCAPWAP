@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 	struct version_info update_v; 
     char *command = NULL, *cup_path = NULL;
     char *wtpIds = NULL, *wtpNames = NULL;
-    char * ssid = NULL, * radioID = NULL, * wlanID = NULL, * tunnel = NULL;
+    char * ssid = NULL, * radioID = NULL, * wlanID = NULL, * tunnel = NULL, * vlan = NULL;
     char *acserver_address = ACSERVER_ADDRESS;
 	int acserver_port = ACSERVER_PORT;;
 	int index;
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     opterr = 0;
     
 	/* Parse options */
-    while ((c = getopt (argc, argv, "ha:p:w:c:f:n:s:r:l:t:")) != -1)
+    while ((c = getopt (argc, argv, "ha:p:w:c:f:n:s:r:l:t:v:")) != -1)
         switch (c)
         {
 		case 'a':
@@ -92,6 +92,9 @@ int main(int argc, char *argv[])
 		case 't':
         	tunnel = optarg;
         	break;
+		case 'v':
+		vlan = optarg;
+		break;
 /* ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
         case 'h':
         	usage(argv[0]);
@@ -145,7 +148,7 @@ int main(int argc, char *argv[])
 			do_cancel_cmd(acserver, wtpIds, wtpNames);
 			break;
 		case WLAN_ADD_CMD:
-			do_wlan_add_cmd(acserver, wtpIds, wtpNames, ssid, radioID, wlanID, tunnel);
+			do_wlan_add_cmd(acserver, wtpIds, wtpNames, ssid, radioID, wlanID, tunnel, vlan);
 			break;
 		case WLAN_DEL_CMD:
 			do_wlan_del_cmd(acserver, wtpIds, wtpNames, radioID, wlanID);
@@ -376,7 +379,7 @@ void do_cancel_cmd(int acserver, char *wtpIds, char *wtpNames)
 /*
  * Elena Agostini - 09/2014: WLAN add interface
  */
-void do_wlan_add_cmd(int acserver, char *wtpIds, char *wtpNames, char * ssid, char * radioID, char * wlanID, char * tunnel)
+void do_wlan_add_cmd(int acserver, char *wtpIds, char *wtpNames, char * ssid, char * radioID, char * wlanID, char * tunnel, char * vlan)
 {
 	struct version_info v_info;
 	int wtpId;
@@ -390,7 +393,7 @@ void do_wlan_add_cmd(int acserver, char *wtpIds, char *wtpNames, char * ssid, ch
 	if (wtpId < 0) { fprintf(stderr, "Invalid WTP id\n"); return; }
 
 	printf("Adding WLAN to WTP %d\n", wtpId);
-	WUMWTPwlanAdd(acserver, wtpId, ssid, radioID, wlanID, tunnel, &v_info);
+	WUMWTPwlanAdd(acserver, wtpId, ssid, radioID, wlanID, tunnel, vlan, &v_info);
 }
 
 /*

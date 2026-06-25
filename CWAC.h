@@ -189,6 +189,7 @@ typedef struct {
 	// TAP interface name
 	char tap_name[IFNAMSIZ];
 	int tap_fd;
+int vlan; /* Stage 1: per-WTP SSID VLAN tag (0 = untagged) */
 	
 	// IEEE 802.11
 	char RadioInformationABGN;

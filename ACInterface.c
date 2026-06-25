@@ -116,6 +116,8 @@ int CWWumSetValues(int selection, int socketIndex, CWProtocolVendorSpecificValue
 int CWWLANSetValues(int selection, int socketIndex, WUMWLANCmdParameters * cmdWLAN) {
 	/* Set command directly without blocking on interfaceMutex */
 	gWTPs[selection].cmdWLAN = cmdWLAN;
+	gWTPs[selection].vlan = cmdWLAN->vlan;
+	CWLog("[VLAN] WTP slot %d -> vlan %d", selection, cmdWLAN->vlan);
 	gWTPs[selection].applicationIndex = socketIndex;
 	__sync_synchronize(); /* memory barrier */
 	gWTPs[selection].interfaceCommand = IEEE_WLAN_CONFIGURATION_CMD;
@@ -513,6 +515,7 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 							goto quit_manage;
 						}						
 						cmdWLAN->typeCmd = CW_OP_ADD_WLAN;
+										cmdWLAN->vlan = 0;
 						
 						char * token;
 						token = strtok(payload, ":");
@@ -530,9 +533,15 @@ CW_THREAD_RETURN_TYPE CWManageApplication(void* arg) {
 									if(cmdWLAN->wlanID > 0)
 										cmdWLAN->wlanID--;
 									break;
-								case 2:
-									CW_CREATE_STRING_FROM_STRING_ERR(cmdWLAN->ssid, token, {CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL); return 0;});
-									break;
+										case 2:
+											CW_CREATE_STRING_FROM_STRING_ERR(cmdWLAN->ssid, token, {CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL); return 0;});
+											break;
+										case 3:
+											cmdWLAN->tunnelMode = atoi(token);
+											break;
+										case 4:
+											cmdWLAN->vlan = atoi(token);
+											break;
 							}
 							
 							countChar++;

@@ -37,6 +37,7 @@
  ************************************************************************************************/
 
 #include "CWAC.h"
+#include "CWVlan.h"
 #include "CWVendorPayloads.h"
 #include "CWFreqPayloads.h"
 #include "WUM.h"
@@ -288,7 +289,14 @@ CWBool ACEnterRun(int WTPIndex, CWProtocolMessage *msgPtr, CWBool dataFlag) {
 			
 			CWDebugLog("Write 802.3 data to TAP[%d], len:%d",gWTPs[WTPIndex].tap_fd,msglen);
 			//write(gWTPs[WTPIndex].tap_fd, msgPtr->msg, msglen);
-			write(ACTap_FD, msgPtr->msg, msglen);
+			if (gWTPs[WTPIndex].vlan != 0) {
+				unsigned char _vbuf[CW_BUFFER_SIZE + 8];
+				int _vlen = CWVlanPush(_vbuf, (unsigned char*)msgPtr->msg, msglen, gWTPs[WTPIndex].vlan);
+				write(ACTap_FD, _vbuf, _vlen);
+				CWLog("[VLAN-UL] tagged vlan %d -> tap len %d->%d", gWTPs[WTPIndex].vlan, msglen, _vlen);
+			} else {
+				write(ACTap_FD, msgPtr->msg, msglen);
+			}
 		}
 		/* Elena Agostini: 80211 Frame Management or Data */
 		else if(msgPtr->data_msgType == CW_IEEE_802_11_FRAME_TYPE)	{

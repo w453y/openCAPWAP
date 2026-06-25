@@ -204,7 +204,7 @@ int WUMGetWTPVersion(int acserver, int wtpId, struct version_info *v_info)
 /*
  * Elena Agostini - 09/2014: WLAN add interface
  */
-int WUMWTPwlanAdd(int acserver, int wtpId, char * ssid, char * radioID, char * wlanID, char * tunnel, struct version_info *v_info)
+int WUMWTPwlanAdd(int acserver, int wtpId, char * ssid, char * radioID, char * wlanID, char * tunnel, char * vlan, struct version_info *v_info)
 {
 	wum_req_t msg;
 	wum_resp_t resp;
@@ -218,12 +218,12 @@ int WUMWTPwlanAdd(int acserver, int wtpId, char * ssid, char * radioID, char * w
 		return ERROR;
 	}
 	
-	WUM_INIT_REQ_MSG(msg, strlen(ssid)+strlen(radioID)+strlen(wlanID)+(tunnel?strlen(tunnel):1)+4);
+	WUM_INIT_REQ_MSG(msg, strlen(ssid)+strlen(radioID)+strlen(wlanID)+(tunnel?strlen(tunnel):1)+(vlan?strlen(vlan):1)+5);
 	msg.cmd_msg = CONF_UPDATE_MSG;
 	msg.msg_elem = MSG_ELEMENT_TYPE_ADD_WLAN;
 	msg.wtpId = wtpId;
 	msg.wum_type = WTP_WLAN_ADD_REQUEST;
-	msg.payload_len = strlen(ssid)+strlen(radioID)+strlen(wlanID)+strlen(tunnel)+4;
+	msg.payload_len = strlen(ssid)+strlen(radioID)+strlen(wlanID)+(tunnel?strlen(tunnel):1)+(vlan?strlen(vlan):1)+5;
 	msg.payload = (char *) calloc(msg.payload_len, sizeof(char));
 	if(msg.payload == NULL)
 	{
@@ -233,9 +233,9 @@ int WUMWTPwlanAdd(int acserver, int wtpId, char * ssid, char * radioID, char * w
 	
 	//Tunnel non dovrebbe mai essere NULL. Attualmente 0 non e' stato previsto
 	if(tunnel == NULL)
-		snprintf(msg.payload, msg.payload_len, "%s:%s:%s:1", radioID, wlanID, ssid);
+		snprintf(msg.payload, msg.payload_len, "%s:%s:%s:1:%s", radioID, wlanID, ssid, vlan?vlan:"0");
 	else
-		snprintf(msg.payload, msg.payload_len, "%s:%s:%s:%s", radioID, wlanID, ssid, tunnel);
+		snprintf(msg.payload, msg.payload_len, "%s:%s:%s:%s:%s", radioID, wlanID, ssid, tunnel, vlan?vlan:"0");
 		
 	if (WUMSendMessage(acserver, msg) != 0) {
 		fprintf(stderr, "Error while sending WUM message");
