@@ -138,6 +138,8 @@ typedef struct{
 	WTPRebootStatisticsInfo *WTPRebootStatistics;
 	//Elena Agostini - 11/2014: Delete Station MsgElem
 	CWMsgElemDataDeleteStation * WTPStaDeleteInfo;
+/* Station ADD MsgElem (split-MAC: WTP notifies AC of client association) */
+	CWMsgElemDataDeleteStation * WTPStaAddInfo;
 } CWProtocolWTPEventRequestValues;
 
 typedef struct {

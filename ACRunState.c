@@ -1351,6 +1351,22 @@ CWLog("Prima di CWACSendAcknowledgedPacket");
 			}
 			if(!(CWSaveWTPEventRequestMessage(&valuesPtr, &(gWTPs[WTPIndex].WTPProtocolManager))))
 				return CW_FALSE;
+
+			/* Station ADD event: AC learns client->WTP mapping for downlink
+			 * routing. AVL is keyed by MAC; the radioID we store is what the
+			 * bulk-delete reads back (tmp->radioID), so insert/delete stay
+			 * consistent and the teardown does not corrupt the tree. */
+			if(valuesPtr.WTPStaAddInfo != NULL && valuesPtr.WTPStaAddInfo->staAddr != NULL) {
+				CWThreadMutexLock(&mutexAvlTree);
+				if(AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree) == NULL) {
+					unsigned char _bssid[ETH_ALEN]; memset(_bssid,0,ETH_ALEN);
+					avlTree = AVLinsert(WTPIndex, valuesPtr.WTPStaAddInfo->staAddr,
+					                    _bssid, valuesPtr.WTPStaAddInfo->radioID, avlTree);
+					CWLog("[UL-LEARN] AC learned STA from WTP ADD event WTPIndex=%d radioID=%d",
+					      WTPIndex, valuesPtr.WTPStaAddInfo->radioID);
+				}
+				CWThreadMutexUnlock(&mutexAvlTree);
+			}
 			
 			if(!(CWAssembleWTPEventResponse(&messages,
 							&messagesCount,
@@ -1788,6 +1804,7 @@ CWBool CWParseWTPEventRequestMessage(CWProtocolMessage *msgPtr,
 	valuesPtr->WTPRadioStatistics = NULL;
 	valuesPtr->WTPRebootStatistics = NULL;
 	valuesPtr->WTPStaDeleteInfo = NULL;
+valuesPtr->WTPStaAddInfo = NULL;
 
 	/* parse message elements */
 	while((msgPtr->offset - offsetTillMessages) < len) {
@@ -1852,6 +1869,11 @@ CWBool CWParseWTPEventRequestMessage(CWProtocolMessage *msgPtr,
 			case CW_MSG_ELEMENT_DELETE_STATION_CW_TYPE:
 				CW_CREATE_OBJECT_ERR(valuesPtr->WTPStaDeleteInfo, CWMsgElemDataDeleteStation, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 				if (!(CWParseWTPDeleteStation(msgPtr, elemLen, valuesPtr->WTPStaDeleteInfo)))
+					return CW_FALSE;	
+				break;
+			case CW_MSG_ELEMENT_ADD_STATION_CW_TYPE:
+				CW_CREATE_OBJECT_ERR(valuesPtr->WTPStaAddInfo, CWMsgElemDataDeleteStation, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+				if (!(CWParseWTPDeleteStation(msgPtr, elemLen, valuesPtr->WTPStaAddInfo)))
 					return CW_FALSE;	
 				break;
 			default:
