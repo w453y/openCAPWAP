@@ -372,6 +372,7 @@ void CWACManageIncomingPacket(CWSocket sock,
 		int seqNum, tmp;
 			
 		CWDiscoveryRequestValues values;
+		memset(&values, 0, sizeof(values));
 		
 		if(!CWErr(CWThreadMutexLock(&gActiveWTPsMutex)))  {
 			CWLog("WARNING: gActiveWTPsMutex lock failed in incoming packet handler"); return;
