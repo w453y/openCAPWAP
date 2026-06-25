@@ -129,6 +129,7 @@ CWBool CWAssembleMsgElemWTPRadioStatistics(CWProtocolMessage *msgPtr,int radio);
 CWBool CWAssembleMsgElemWTPRebootStatistics(CWProtocolMessage *msgPtr);			//44
 //Elena Agostini - 11/2014: Delete Station Msg Elem
 CWBool CWAssembleMsgElemWTPDeleteStation(CWProtocolMessage *msgPtr, CWMsgElemDataDeleteStation * infoDeleteStation);
+CWBool CWAssembleMsgElemWTPAddStation(CWProtocolMessage *msgPtr, CWMsgElemDataDeleteStation * infoAddStation);
 //Elena Agostini - 02/2014: ECN Support Msg Elem MUST be included in Join Request/Response Messages
 CWBool CWAssembleMsgElemECNSupport(CWProtocolMessage *msgPtr);
 //CWBool CWAssembleMsgElemWTPStaticIPInfo(CWProtocolMessage *msgPtr);			//45

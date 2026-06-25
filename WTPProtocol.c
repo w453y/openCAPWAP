@@ -565,6 +565,20 @@ CWBool CWAssembleMsgElemWTPDeleteStation(CWProtocolMessage *msgPtr, CWMsgElemDat
 }
 
 //test version
+CWBool CWAssembleMsgElemWTPAddStation(CWProtocolMessage *msgPtr, CWMsgElemDataDeleteStation * infoAddStation)
+{	
+	if(msgPtr == NULL || infoAddStation == NULL) return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
+	
+	CW_CREATE_PROTOCOL_MESSAGE(*msgPtr, 2+ETH_ALEN, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	
+	CWProtocolStore8(msgPtr, infoAddStation->radioID);
+	CWProtocolStore8(msgPtr, ETH_ALEN);
+	CWProtocolStoreRawBytes(msgPtr, infoAddStation->staAddr, ETH_ALEN);
+	
+	return CWAssembleMsgElem(msgPtr, CW_MSG_ELEMENT_ADD_STATION_CW_TYPE);
+}
+
+//test version
 CWBool CWAssembleMsgElemDuplicateIPv4Address(CWProtocolMessage *msgPtr) {
 	const int duplicate_ipv4_length= 11;
 	char *macAddress;

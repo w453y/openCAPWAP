@@ -76,7 +76,7 @@ extern struct nl80211SocketUnit globalNLSock;
 //Max num WTP interface for each radio
 #define WTP_MAX_INTERFACES 1
 //Max num STA for each interface
-#define WTP_MAX_STA 3
+#define WTP_MAX_STA 16
 
 #define WLAN_CAPABILITY_NUM_FIELDS 16
 #define WLAN_KEY_LEN 4
@@ -586,6 +586,7 @@ CWBool CWStartAssociationRequestTimer(WTPSTAInfo * staInfo, WTPBSSInfo * WTPBSSI
 void CWWTPAssociationRequestTimerExpiredHandler(void *arg);
 int ieee80211_frequency_to_channel(int freq);
 CWBool CWWTPEventRequestDeleteStation(int radioId, unsigned char * staAddr);
+CWBool CWWTPEventRequestAddStation(int radioId, unsigned char * staAddr);
 
 /* CW80211InformationElements.c */
 char * CW80211AssembleProbeResponse(WTPBSSInfo * WTPBSSInfoPtr, struct CWFrameProbeRequest *request, int *offset);

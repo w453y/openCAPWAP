@@ -559,3 +559,19 @@ CWBool CWWTPEventRequestDeleteStation(int radioId, unsigned char * staAddr) {
 	if(!CWWTPCheckForWTPEventRequest(CW_MSG_ELEMENT_DELETE_STATION_CW_TYPE, infoDeleteStation))
 		return CW_FALSE;
 }
+CWBool CWWTPEventRequestAddStation(int radioId, unsigned char * staAddr) {
+	
+	CWMsgElemDataDeleteStation * infoDeleteStation;
+	
+	if(staAddr == NULL)
+		return CW_FALSE;
+	
+	CW_CREATE_OBJECT_ERR(infoDeleteStation, CWMsgElemDataDeleteStation, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	infoDeleteStation->radioID = radioId;
+	CW_COPY_MEMORY(infoDeleteStation->staAddr, staAddr, ETH_ALEN);
+	
+	if(!CWWTPCheckForWTPEventRequest(CW_MSG_ELEMENT_ADD_STATION_CW_TYPE, infoDeleteStation))
+		return CW_FALSE;
+
+	return CW_TRUE;
+}

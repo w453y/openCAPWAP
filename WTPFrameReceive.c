@@ -61,6 +61,31 @@ const char *CWWTPVapIfName(void){
 	return NULL;
 }
 
+/* Clean 802.3 client table: populated ONLY by genuine ath1 uplink (our
+ * BSS). Decoupled from staList, which the nl80211 mgmt path pollutes with
+ * foreign auth-frame MACs. Downlink broadcast fanout targets THIS list so
+ * replies reach only real associated clients. */
+#define G8023_MAX_CLIENTS 16
+static unsigned char g8023Clients[G8023_MAX_CLIENTS][6];
+static int g8023ClientCount = 0;
+static CWThreadMutex g8023Mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int g8023IsKnown(const unsigned char *mac) {
+	int i;
+	for (i = 0; i < g8023ClientCount; i++)
+		if (memcmp(g8023Clients[i], mac, 6) == 0) return 1;
+	return 0;
+}
+static int g8023Learn(const unsigned char *mac) {
+	int rc = 0;
+	CWThreadMutexLock(&g8023Mutex);
+	if (!g8023IsKnown(mac) && g8023ClientCount < G8023_MAX_CLIENTS) {
+		memcpy(g8023Clients[g8023ClientCount++], mac, 6);
+		rc = 1;
+	}
+	CWThreadMutexUnlock(&g8023Mutex);
+	return rc;
+}
 int CWWTPSendFrame(unsigned char *buf, int len){
 	/* 802.3 passthrough: the AC now sends the raw Ethernet (802.3) frame
 	 * on the data channel. We write it straight to ath1 (the real AP TX
@@ -99,15 +124,38 @@ int CWWTPSendFrame(unsigned char *buf, int len){
 		           _ath1_sock, _ath1_sll.sll_ifindex);
 	}
 
-	/* Re-resolve the VAP ifindex each send: a wifi restart can give
-	 * ath1 a new ifindex, which would make the cached sll_ifindex
-	 * stale and sendto fail. Cheap lookup keeps TX on the live VAP. */
+	/* Re-resolve the VAP ifindex each send (wifi restart can renumber ath1). */
 	{
 		const char *_vap = CWWTPVapIfName();
 		unsigned int _cur = _vap ? if_nametoindex(_vap) : 0;
 		if (_cur != 0) _ath1_sll.sll_ifindex = _cur;
 	}
-	/* Destination MAC = first 6 bytes of the 802.3 frame */
+
+	/* qca-wifi AP mode drops raw-injected broadcast/multicast frames to
+	 * associated STAs (group frames are PS-buffered, not delivered on raw
+	 * inject). A DHCP reply to a not-yet-IP client is L2-broadcast, so it
+	 * never reaches the client. Fix: fan a UNICAST copy to each associated
+	 * STA so the driver station path 802.11-encaps and delivers it. */
+	if (buf[0] & 0x01) {
+		int _i, _sent = 0;
+		CWThreadMutexLock(&g8023Mutex);
+		int _cnt = g8023ClientCount;
+		for (_i = 0; _i < _cnt; _i++) {
+			unsigned char _ucbuf[2048];
+			int _uclen = (len > (int)sizeof(_ucbuf)) ? (int)sizeof(_ucbuf) : len;
+			memcpy(_ucbuf, buf, _uclen);
+			memcpy(_ucbuf, g8023Clients[_i], 6);
+			memcpy(_ath1_sll.sll_addr, g8023Clients[_i], 6);
+			if (sendto(_ath1_sock, _ucbuf, _uclen, 0,
+			           (struct sockaddr *)&_ath1_sll, sizeof(_ath1_sll)) >= 0)
+				_sent++;
+		}
+		CWThreadMutexUnlock(&g8023Mutex);
+		CWDebugLog("CWWTPSendFrame: bcast fanned out to %d STA(s), %d bytes", _sent, len);
+		return (_sent > 0) ? 1 : -1;
+	}
+
+	/* Destination MAC = first 6 bytes of the 802.3 frame (unicast) */
 	memcpy(_ath1_sll.sll_addr, buf, 6);
 
 	if (sendto(_ath1_sock, buf, len, 0,
@@ -217,6 +265,7 @@ int from_8023_to_80211( unsigned char *inbuffer,int inlen, unsigned char *outbuf
 
 int gRawSock;
 int rawInjectSocket;
+
 extern int wtpInRunState;
 
 CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
@@ -341,7 +390,8 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 				}
 			}
 		}
-		n = recvfrom(gRawSock,buffer,sizeof(buffer),0,NULL,NULL);
+		struct sockaddr_ll _rxsll; socklen_t _rxslen = sizeof(_rxsll);
+			n = recvfrom(gRawSock,buffer,sizeof(buffer),0,(struct sockaddr*)&_rxsll,&_rxslen);
 
 		if(n<0){
 			/* timeout (SO_RCVTIMEO) or error: loop back so the
@@ -349,6 +399,11 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			continue;
 		}
 
+
+			/* Skip frames WE injected (downlink TX): AF_PACKET RAW captures both
+			 * directions, so without this our inject loops back into capture --
+			 * we would learn LAN host MACs and re-tunnel our own downlink up. */
+			if (_rxsll.sll_pkttype == PACKET_OUTGOING) continue;
 		if (!wtpInRunState){
 			continue;
 		}
@@ -376,6 +431,21 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 					continue;  /* AP's own frame */
 			}
 
+
+
+			/* Learn on first genuine ath1 uplink: record in the clean 802.3
+			 * client table (drives downlink fanout) and notify the AC via an
+			 * ADD event so it can route downlink to this client. */
+			if (g8023Learn((unsigned char *)buffer + 6)) {
+				int _rid = (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL && WTPGlobalBSSList[0]->phyInfo != NULL) ? WTPGlobalBSSList[0]->phyInfo->radioID : 0;
+				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL) {
+					WTPSTAInfo *_ns = addSTABySA(WTPGlobalBSSList[0], (unsigned char *)buffer + 6);
+					if (_ns != NULL) _ns->state = CW_80211_STA_ASSOCIATION;
+				}
+				CWWTPEventRequestAddStation(_rid, (unsigned char *)buffer + 6);
+				CWLog("[802.3] learned client %02x:%02x:%02x:%02x:%02x:%02x, sent ADD to AC",
+					buffer[6],buffer[7],buffer[8],buffer[9],buffer[10],buffer[11]);
+			}
 			CWProtocolMessage *f8023 = NULL;
 			CWBindingDataListElement *le8023 = NULL;
 

@@ -1728,6 +1728,13 @@ CWBool CWAssembleWTPEventRequest(CWProtocolMessage **messagesPtr,
 				if (!(CWAssembleMsgElemWTPDeleteStation(&(msgElems[++k]), infoDeleteStation)))
 					goto cw_assemble_error;	
 				break;
+			case CW_MSG_ELEMENT_ADD_STATION_CW_TYPE:
+				if(infoDeleteStation == NULL)
+					return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
+					
+				if (!(CWAssembleMsgElemWTPAddStation(&(msgElems[++k]), infoDeleteStation)))
+					goto cw_assemble_error;	
+				break;
 			default:
 				goto cw_assemble_error;
 				break;	
