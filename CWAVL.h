@@ -9,6 +9,7 @@ typedef struct nodeAVL
     //per AC: serve anche radioID?
     struct nodeAVL*  left;
     struct nodeAVL*  right;
+    int      vlan;   /* Stage 2: per-client VLAN (0 = untagged/native) */
     int      height;
 } nodeAVL;
 

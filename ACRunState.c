@@ -289,16 +289,21 @@ CWBool ACEnterRun(int WTPIndex, CWProtocolMessage *msgPtr, CWBool dataFlag) {
 			
 			CWDebugLog("Write 802.3 data to TAP[%d], len:%d",gWTPs[WTPIndex].tap_fd,msglen);
 			//write(gWTPs[WTPIndex].tap_fd, msgPtr->msg, msglen);
-			if (gWTPs[WTPIndex].vlan != 0) {
+			int _vlan = gWTPs[WTPIndex].vlan;
+			CWThreadMutexLock(&mutexAvlTree);
+			nodeAVL *_uvn = AVLfind((unsigned char*)msgPtr->msg + 6, avlTree);
+			int _permac = (_uvn != NULL && _uvn->vlan != 0);
+			if (_permac) _vlan = _uvn->vlan;
+			CWThreadMutexUnlock(&mutexAvlTree);
+			if (_vlan != 0) {
 				unsigned char _vbuf[CW_BUFFER_SIZE + 8];
-				int _vlen = CWVlanPush(_vbuf, (unsigned char*)msgPtr->msg, msglen, gWTPs[WTPIndex].vlan);
+				int _vlen = CWVlanPush(_vbuf, (unsigned char*)msgPtr->msg, msglen, _vlan);
 				write(ACTap_FD, _vbuf, _vlen);
-				CWLog("[VLAN-UL] tagged vlan %d -> tap len %d->%d", gWTPs[WTPIndex].vlan, msglen, _vlen);
+				CWLog("[VLAN-UL] vlan %d via %s len %d->%d", _vlan, _permac?"per-MAC":"per-WTP", msglen, _vlen);
 			} else {
 				write(ACTap_FD, msgPtr->msg, msglen);
 			}
-		}
-		/* Elena Agostini: 80211 Frame Management or Data */
+			}
 		else if(msgPtr->data_msgType == CW_IEEE_802_11_FRAME_TYPE)	{
 				
 			if(!CW80211ParseFrameIEControl(msgPtr->msg, &(offsetFrameReceived), &(frameControl)))
@@ -326,6 +331,8 @@ CWBool ACEnterRun(int WTPIndex, CWProtocolMessage *msgPtr, CWBool dataFlag) {
 							avlTree);
 						CWLog("[DL-LEARN] AVLinsert STA %02x:%02x:%02x:%02x:%02x:%02x WTPIndex=%d",
 							dataFrame.SA[0],dataFrame.SA[1],dataFrame.SA[2],dataFrame.SA[3],dataFrame.SA[4],dataFrame.SA[5], WTPIndex);
+							nodeAVL *_vn2 = AVLfind(dataFrame.SA, avlTree);
+							if (_vn2 != NULL) _vn2->vlan = gWTPs[WTPIndex].vlan;
 					}
 					CWThreadMutexUnlock(&mutexAvlTree);
 				}
@@ -1372,6 +1379,9 @@ CWLog("Prima di CWACSendAcknowledgedPacket");
 					                    _bssid, valuesPtr.WTPStaAddInfo->radioID, avlTree);
 					CWLog("[UL-LEARN] AC learned STA from WTP ADD event WTPIndex=%d radioID=%d",
 					      WTPIndex, valuesPtr.WTPStaAddInfo->radioID);
+						nodeAVL *_vn = AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree);
+						if (_vn != NULL) { _vn->vlan = gWTPs[WTPIndex].vlan;
+							CWLog("[VLAN-MAP] STA learned -> vlan %d (WTP %d)", gWTPs[WTPIndex].vlan, WTPIndex); }
 				}
 				CWThreadMutexUnlock(&mutexAvlTree);
 			}

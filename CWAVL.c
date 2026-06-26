@@ -202,6 +202,7 @@ nodeAVL* AVLinsert(int index, unsigned char * staAddr, unsigned char * BSSID, in
         
         t->index = index;
         t->radioID = radioID;
+        t->vlan = 0;   /* default; set post-insert from gWTPs[].vlan or event */
         CW_COPY_MEMORY(t->staAddr, staAddr,ETH_ALEN);
         if(BSSID != NULL)
 			 CW_COPY_MEMORY(t->BSSID, BSSID,ETH_ALEN);
@@ -302,6 +303,7 @@ struct nodeAVL* AVLdeleteNode(struct nodeAVL* root, unsigned char * staAddr, int
 				// Copy the inorder successor's data to this node
 				root->index = temp->index;
 				root->radioID = temp->radioID;
+				root->vlan = temp->vlan;
 				CW_COPY_MEMORY(root->staAddr, temp->staAddr, ETH_ALEN);
 				CW_COPY_MEMORY(root->BSSID, temp->BSSID, ETH_ALEN);
 				
@@ -408,6 +410,7 @@ struct nodeAVL* AVLdeleteNodeWithoutRadioID(struct nodeAVL* root, struct nodeAVL
 				// Copy the inorder successor's data to this node
 				root->index = temp->index;
 				root->radioID = temp->radioID;
+				root->vlan = temp->vlan;
 				CW_COPY_MEMORY(root->staAddr, temp->staAddr, ETH_ALEN);
 				CW_COPY_MEMORY(root->BSSID, temp->BSSID, ETH_ALEN);
 				
