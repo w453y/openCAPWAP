@@ -349,6 +349,7 @@ typedef struct {
 //Elena Agostini - 11/2014: Delete Station
 typedef struct {
 	int radioID;
+	int wlanID;	/* Stage 2c-2: which WLAN/VAP the STA is on (per-WLAN VLAN) */
 	unsigned char staAddr[ETH_ALEN];
 } CWMsgElemDataDeleteStation;
 

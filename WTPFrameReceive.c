@@ -542,7 +542,7 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 					WTPSTAInfo *_ns = addSTABySA(WTPGlobalBSSList[_slot], (unsigned char *)buffer + 6);
 					if (_ns != NULL) _ns->state = CW_80211_STA_ASSOCIATION;
 				}
-				CWWTPEventRequestAddStation(_rid, (unsigned char *)buffer + 6);
+				CWWTPEventRequestAddStation(_rid, _slot % WTP_MAX_INTERFACES, (unsigned char *)buffer + 6);
 				CWLog("[802.3] learned client %02x:%02x:%02x:%02x:%02x:%02x on slot %d, sent ADD to AC",
 					buffer[6],buffer[7],buffer[8],buffer[9],buffer[10],buffer[11], _slot);
 			}

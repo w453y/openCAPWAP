@@ -349,7 +349,7 @@ CWLog("Local MAC... prepare reassociation response");
 					if(CWWTPDelStation(WTPBSSInfoPtr, thisSTA))
 					{
 						CWPrintEthernetAddress(disassocRequest.SA, "[CW80211] STA deleted");
-						CWWTPEventRequestDeleteStation(deleteRadioID, deleteStaAddr);
+						CWWTPEventRequestDeleteStation(deleteRadioID, 0, deleteStaAddr);
 					}
 					else
 						CWPrintEthernetAddress(disassocRequest.SA, "[CW80211] STA NOT deleted");
@@ -538,14 +538,14 @@ void CWWTPAssociationRequestTimerExpiredHandler(void *arg) {
 		if(CWWTPDeauthStation(info->BSSInfo, info->staInfo))
 		{
 			CWPrintEthernetAddress(staAddr, "[CW80211] STA deleted by timer handler");
-			CWWTPEventRequestDeleteStation(radioID, staAddr);
+			CWWTPEventRequestDeleteStation(radioID, 0, staAddr);
 		}
 		else
 			CWPrintEthernetAddress(staAddr, "[CW80211] STA NOT deleted by timer handler");
 	}
 }
 
-CWBool CWWTPEventRequestDeleteStation(int radioId, unsigned char * staAddr) {
+CWBool CWWTPEventRequestDeleteStation(int radioId, int wlanId, unsigned char * staAddr) {
 	
 	CWMsgElemDataDeleteStation * infoDeleteStation;
 	
@@ -554,12 +554,13 @@ CWBool CWWTPEventRequestDeleteStation(int radioId, unsigned char * staAddr) {
 	
 	CW_CREATE_OBJECT_ERR(infoDeleteStation, CWMsgElemDataDeleteStation, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	infoDeleteStation->radioID = radioId;
+	infoDeleteStation->wlanID = wlanId;
 	CW_COPY_MEMORY(infoDeleteStation->staAddr, staAddr, ETH_ALEN);
 	
 	if(!CWWTPCheckForWTPEventRequest(CW_MSG_ELEMENT_DELETE_STATION_CW_TYPE, infoDeleteStation))
 		return CW_FALSE;
 }
-CWBool CWWTPEventRequestAddStation(int radioId, unsigned char * staAddr) {
+CWBool CWWTPEventRequestAddStation(int radioId, int wlanId, unsigned char * staAddr) {
 	
 	CWMsgElemDataDeleteStation * infoDeleteStation;
 	
@@ -568,6 +569,7 @@ CWBool CWWTPEventRequestAddStation(int radioId, unsigned char * staAddr) {
 	
 	CW_CREATE_OBJECT_ERR(infoDeleteStation, CWMsgElemDataDeleteStation, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	infoDeleteStation->radioID = radioId;
+	infoDeleteStation->wlanID = wlanId;
 	CW_COPY_MEMORY(infoDeleteStation->staAddr, staAddr, ETH_ALEN);
 	
 	if(!CWWTPCheckForWTPEventRequest(CW_MSG_ELEMENT_ADD_STATION_CW_TYPE, infoDeleteStation))

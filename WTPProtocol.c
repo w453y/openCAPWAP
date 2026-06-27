@@ -555,9 +555,10 @@ CWBool CWAssembleMsgElemWTPDeleteStation(CWProtocolMessage *msgPtr, CWMsgElemDat
 {	
 	if(msgPtr == NULL || infoDeleteStation == NULL) return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	
-	CW_CREATE_PROTOCOL_MESSAGE(*msgPtr, 2+ETH_ALEN, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	CW_CREATE_PROTOCOL_MESSAGE(*msgPtr, 3+ETH_ALEN, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	
 	CWProtocolStore8(msgPtr, infoDeleteStation->radioID);
+	CWProtocolStore8(msgPtr, infoDeleteStation->wlanID);
 	CWProtocolStore8(msgPtr, ETH_ALEN);
 	CWProtocolStoreRawBytes(msgPtr, infoDeleteStation->staAddr, ETH_ALEN);
 	
@@ -569,9 +570,10 @@ CWBool CWAssembleMsgElemWTPAddStation(CWProtocolMessage *msgPtr, CWMsgElemDataDe
 {	
 	if(msgPtr == NULL || infoAddStation == NULL) return CWErrorRaise(CW_ERROR_WRONG_ARG, NULL);
 	
-	CW_CREATE_PROTOCOL_MESSAGE(*msgPtr, 2+ETH_ALEN, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	CW_CREATE_PROTOCOL_MESSAGE(*msgPtr, 3+ETH_ALEN, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	
 	CWProtocolStore8(msgPtr, infoAddStation->radioID);
+	CWProtocolStore8(msgPtr, infoAddStation->wlanID);
 	CWProtocolStore8(msgPtr, ETH_ALEN);
 	CWProtocolStoreRawBytes(msgPtr, infoAddStation->staAddr, ETH_ALEN);
 	
