@@ -67,6 +67,7 @@ const char *CWWTPVapIfName(void){
  * replies reach only real associated clients. */
 #define G8023_MAX_CLIENTS 16
 static unsigned char g8023Clients[G8023_MAX_CLIENTS][6];
+static int g8023ClientSlot[G8023_MAX_CLIENTS];   /* Stage 2c: BSS slot (VAP) per client */
 static int g8023ClientCount = 0;
 static CWThreadMutex g8023Mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -76,96 +77,133 @@ static int g8023IsKnown(const unsigned char *mac) {
 		if (memcmp(g8023Clients[i], mac, 6) == 0) return 1;
 	return 0;
 }
-static int g8023Learn(const unsigned char *mac) {
-	int rc = 0;
+/* Stage 2c: learn a client together with the BSS slot (VAP) it arrived on, so
+ * downlink injection can target the correct VAP. */
+static int g8023Learn(const unsigned char *mac, int slot) {
+	int rc = 0, i;
 	CWThreadMutexLock(&g8023Mutex);
-	if (!g8023IsKnown(mac) && g8023ClientCount < G8023_MAX_CLIENTS) {
-		memcpy(g8023Clients[g8023ClientCount++], mac, 6);
-		rc = 1;
+	int known = -1;
+	for (i = 0; i < g8023ClientCount; i++)
+		if (memcmp(g8023Clients[i], mac, 6) == 0) { known = i; break; }
+	if (known < 0) {
+		if (g8023ClientCount < G8023_MAX_CLIENTS) {
+			memcpy(g8023Clients[g8023ClientCount], mac, 6);
+			g8023ClientSlot[g8023ClientCount] = slot;
+			g8023ClientCount++;
+			rc = 1;   /* new client */
+		}
+	} else if (g8023ClientSlot[known] != slot) {
+		g8023ClientSlot[known] = slot;   /* client roamed to another VAP */
+		rc = 1;   /* re-ADD so the AC refreshes the client->radio mapping */
 	}
 	CWThreadMutexUnlock(&g8023Mutex);
 	return rc;
 }
-int CWWTPSendFrame(unsigned char *buf, int len){
-	/* 802.3 passthrough: the AC now sends the raw Ethernet (802.3) frame
-	 * on the data channel. We write it straight to ath1 (the real AP TX
-	 * path) with no 802.11->802.3 decap. Persistent AF_PACKET socket on
-	 * ath1, reused across calls to avoid per-frame open/close latency. */
-	static int _ath1_sock = -1;
-	static struct sockaddr_ll _ath1_sll;
 
+/* === Stage 2c: multi-VAP helpers ===
+ * Resolve a capture/ingress ifindex to the active BSS slot that owns it. */
+static int CWWTPSlotByIfindex(unsigned int ifidx) {
+	int b, n;
+	if (ifidx == 0 || WTPGlobalBSSList == NULL) return -1;
+	n = WTP_MAX_INTERFACES * gRadiosInfo.radioCount;
+	for (b = 0; b < n; b++) {
+		if (WTPGlobalBSSList[b] != NULL &&
+		    WTPGlobalBSSList[b]->active == CW_TRUE &&
+		    WTPGlobalBSSList[b]->interfaceInfo != NULL &&
+		    WTPGlobalBSSList[b]->interfaceInfo->ifName != NULL &&
+		    if_nametoindex(WTPGlobalBSSList[b]->interfaceInfo->ifName) == ifidx)
+			return b;
+	}
+	return -1;
+}
+/* Slot a learned client MAC is on (-1 if unknown). */
+static int CWWTPSlotByMac(const unsigned char *mac) {
+	int i, slot = -1;
+	CWThreadMutexLock(&g8023Mutex);
+	for (i = 0; i < g8023ClientCount; i++)
+		if (memcmp(g8023Clients[i], mac, 6) == 0) { slot = g8023ClientSlot[i]; break; }
+	CWThreadMutexUnlock(&g8023Mutex);
+	return slot;
+}
+/* Per-slot persistent inject socket, bound by NAME (follows ifindex across wifi
+ * restarts). Inject one 802.3 frame (dest MAC in buf) out the slot's VAP. */
+static int _vapInjSock[WTP_MAX_INTERFACES * 8];
+static int _vapInjInit = 0;
+static int CWWTPInjectViaSlot(int slot, unsigned char *buf, int len) {
+	int n = WTP_MAX_INTERFACES * gRadiosInfo.radioCount;
+	if (slot < 0 || slot >= n) return -1;
+	if (WTPGlobalBSSList == NULL || WTPGlobalBSSList[slot] == NULL ||
+	    WTPGlobalBSSList[slot]->interfaceInfo == NULL ||
+	    WTPGlobalBSSList[slot]->interfaceInfo->ifName == NULL) return -1;
+	const char *vap = WTPGlobalBSSList[slot]->interfaceInfo->ifName;
+	unsigned int ifidx = if_nametoindex(vap);
+	if (ifidx == 0) return -1;
+	if (!_vapInjInit) {
+		int k; for (k = 0; k < (int)(sizeof(_vapInjSock)/sizeof(_vapInjSock[0])); k++) _vapInjSock[k] = -1;
+		_vapInjInit = 1;
+	}
+	if (_vapInjSock[slot] < 0) {
+		_vapInjSock[slot] = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+		if (_vapInjSock[slot] < 0) return -1;
+		struct ifreq _ifr; memset(&_ifr, 0, sizeof(_ifr));
+		strncpy(_ifr.ifr_name, vap, IFNAMSIZ-1);
+		setsockopt(_vapInjSock[slot], SOL_SOCKET, SO_BINDTODEVICE, &_ifr, sizeof(_ifr));
+	}
+	struct sockaddr_ll _sll; memset(&_sll, 0, sizeof(_sll));
+	_sll.sll_family = AF_PACKET;
+	_sll.sll_ifindex = ifidx;
+	_sll.sll_halen = 6;
+	memcpy(_sll.sll_addr, buf, 6);
+	int r = sendto(_vapInjSock[slot], buf, len, 0, (struct sockaddr *)&_sll, sizeof(_sll));
+	if (r < 0) { close(_vapInjSock[slot]); _vapInjSock[slot] = -1; }
+	return r;
+}
+int CWWTPSendFrame(unsigned char *buf, int len){
+	/* 802.3 passthrough (Stage 2c, multi-VAP): the AC sends the raw Ethernet
+	 * frame on the data channel. We inject it out the VAP of the destination
+	 * client (resolved by dest MAC -> slot). Broadcast/multicast is fanned as
+	 * a unicast copy to every learned client via ITS VAP socket. */
 	if (len < 14) {
 		CWDebugLog("CWWTPSendFrame: frame too short (%d)", len);
 		return -1;
 	}
 
-	if (_ath1_sock < 0) {
-		const char *vap = CWWTPVapIfName();
-		unsigned int ifidx;
-		if (vap == NULL || (ifidx = if_nametoindex(vap)) == 0) {
-			CWDebugLog("CWWTPSendFrame: VAP not ready yet");
-			return -1;
-		}
-		_ath1_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-		if (_ath1_sock < 0) {
-			CWDebugLog("CWWTPSendFrame: socket() failed errno=%d", errno);
-			return -1;
-		}
-		memset(&_ath1_sll, 0, sizeof(_ath1_sll));
-		_ath1_sll.sll_family  = AF_PACKET;
-		_ath1_sll.sll_ifindex = ifidx;
-		_ath1_sll.sll_halen   = 6;
-		{
-			struct ifreq _ifr; memset(&_ifr, 0, sizeof(_ifr));
-			strncpy(_ifr.ifr_name, vap, IFNAMSIZ-1);
-			setsockopt(_ath1_sock, SOL_SOCKET, SO_BINDTODEVICE, &_ifr, sizeof(_ifr));
-		}
-		CWDebugLog("CWWTPSendFrame: VAP socket opened fd=%d ifindex=%d (bound by name)",
-		           _ath1_sock, _ath1_sll.sll_ifindex);
-	}
-
-	/* Re-resolve the VAP ifindex each send (wifi restart can renumber ath1). */
-	{
-		const char *_vap = CWWTPVapIfName();
-		unsigned int _cur = _vap ? if_nametoindex(_vap) : 0;
-		if (_cur != 0) _ath1_sll.sll_ifindex = _cur;
-	}
-
-	/* qca-wifi AP mode drops raw-injected broadcast/multicast frames to
-	 * associated STAs (group frames are PS-buffered, not delivered on raw
-	 * inject). A DHCP reply to a not-yet-IP client is L2-broadcast, so it
-	 * never reaches the client. Fix: fan a UNICAST copy to each associated
-	 * STA so the driver station path 802.11-encaps and delivers it. */
+	/* qca-wifi AP mode drops raw-injected group frames to associated STAs
+	 * (PS-buffered, not delivered on raw inject). A DHCP reply to a not-yet-IP
+	 * client is L2-broadcast, so fan a UNICAST copy to each learned client via
+	 * its own VAP. NOTE(2c-2): this currently reaches clients on ALL VAPs; once
+	 * per-WLAN VLANs are separated, scope this fanout per VLAN. */
 	if (buf[0] & 0x01) {
 		int _i, _sent = 0;
 		CWThreadMutexLock(&g8023Mutex);
 		int _cnt = g8023ClientCount;
+		unsigned char _macs[G8023_MAX_CLIENTS][6];
+		int _slots[G8023_MAX_CLIENTS];
+		for (_i = 0; _i < _cnt; _i++) { memcpy(_macs[_i], g8023Clients[_i], 6); _slots[_i] = g8023ClientSlot[_i]; }
+		CWThreadMutexUnlock(&g8023Mutex);
 		for (_i = 0; _i < _cnt; _i++) {
 			unsigned char _ucbuf[2048];
 			int _uclen = (len > (int)sizeof(_ucbuf)) ? (int)sizeof(_ucbuf) : len;
 			memcpy(_ucbuf, buf, _uclen);
-			memcpy(_ucbuf, g8023Clients[_i], 6);
-			memcpy(_ath1_sll.sll_addr, g8023Clients[_i], 6);
-			if (sendto(_ath1_sock, _ucbuf, _uclen, 0,
-			           (struct sockaddr *)&_ath1_sll, sizeof(_ath1_sll)) >= 0)
+			memcpy(_ucbuf, _macs[_i], 6);  /* rewrite dest to the unicast client */
+			if (CWWTPInjectViaSlot(_slots[_i], _ucbuf, _uclen) >= 0)
 				_sent++;
 		}
-		CWThreadMutexUnlock(&g8023Mutex);
 		CWDebugLog("CWWTPSendFrame: bcast fanned out to %d STA(s), %d bytes", _sent, len);
 		return (_sent > 0) ? 1 : -1;
 	}
 
-	/* Destination MAC = first 6 bytes of the 802.3 frame (unicast) */
-	memcpy(_ath1_sll.sll_addr, buf, 6);
-
-	if (sendto(_ath1_sock, buf, len, 0,
-	           (struct sockaddr *)&_ath1_sll, sizeof(_ath1_sll)) < 0) {
-		CWDebugLog("CWWTPSendFrame: sendto ath1 failed errno=%d", errno);
-		close(_ath1_sock);
-		_ath1_sock = -1;
+	/* Unicast: route to the destination client's VAP. */
+	int _slot = CWWTPSlotByMac(buf);
+	if (_slot < 0) {
+		/* Unknown dest (not yet learned). Best-effort: try slot 0. */
+		_slot = 0;
+	}
+	if (CWWTPInjectViaSlot(_slot, buf, len) < 0) {
+		CWDebugLog("CWWTPSendFrame: inject via slot %d failed errno=%d", _slot, errno);
 		return -1;
 	}
-	CWDebugLog("CWWTPSendFrame: sent %d bytes (802.3) via ath1", len);
+	CWDebugLog("CWWTPSendFrame: sent %d bytes (802.3) via slot %d", len, _slot);
 	return 1;
 }
 
@@ -263,8 +301,57 @@ int from_8023_to_80211( unsigned char *inbuffer,int inlen, unsigned char *outbuf
 
 #ifdef SPLIT_MAC
 
+#include <poll.h>
 int gRawSock;
 int rawInjectSocket;
+
+/* === Stage 2c: per-VAP capture sockets ===
+ * One AF_PACKET socket per active CAPWAP VAP, each bound to its VAP by NAME
+ * (SO_BINDTODEVICE, follows ifindex across wifi restarts) AND by ifindex. We
+ * poll() across them; a frame from socket[k] unambiguously belongs to slot k,
+ * so no ingress-ifindex demux is needed (capture-all via ifindex 0 does NOT
+ * reliably deliver qca-wifi VAP frames). */
+#define CW_MAX_CAP_SLOTS (WTP_MAX_INTERFACES * 8)
+static int _capSock[CW_MAX_CAP_SLOTS];
+static unsigned int _capBoundIfidx[CW_MAX_CAP_SLOTS];
+static int _capInit = 0;
+
+static int CWWTPCaptureSockForSlot(int slot) {
+	if (slot < 0 || slot >= CW_MAX_CAP_SLOTS) return -1;
+	if (WTPGlobalBSSList == NULL || WTPGlobalBSSList[slot] == NULL ||
+	    WTPGlobalBSSList[slot]->active != CW_TRUE ||
+	    WTPGlobalBSSList[slot]->interfaceInfo == NULL ||
+	    WTPGlobalBSSList[slot]->interfaceInfo->ifName == NULL)
+		return -1;
+	const char *vap = WTPGlobalBSSList[slot]->interfaceInfo->ifName;
+	unsigned int ifidx = if_nametoindex(vap);
+	if (ifidx == 0) return -1;
+	if (!_capInit) {
+		int k; for (k = 0; k < CW_MAX_CAP_SLOTS; k++) { _capSock[k] = -1; _capBoundIfidx[k] = 0; }
+		_capInit = 1;
+	}
+	if (_capSock[slot] >= 0 && _capBoundIfidx[slot] != ifidx) {
+		close(_capSock[slot]); _capSock[slot] = -1;
+	}
+	if (_capSock[slot] < 0) {
+		int s = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+		if (s < 0) return -1;
+		struct ifreq _ifr; memset(&_ifr, 0, sizeof(_ifr));
+		strncpy(_ifr.ifr_name, vap, IFNAMSIZ-1);
+		setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, &_ifr, sizeof(_ifr));
+		struct sockaddr_ll _a; memset(&_a, 0, sizeof(_a));
+		_a.sll_family = AF_PACKET;
+		_a.sll_protocol = htons(ETH_P_ALL);
+		_a.sll_ifindex = ifidx;
+		if (bind(s, (struct sockaddr*)&_a, sizeof(_a)) < 0) { close(s); return -1; }
+		struct timeval _tv; _tv.tv_sec = 1; _tv.tv_usec = 0;
+		setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv));
+		_capSock[slot] = s;
+		_capBoundIfidx[slot] = ifidx;
+		CWLog("[802.3] capture socket bound to VAP %s (slot %d) ifindex %u", vap, slot, ifidx);
+	}
+	return _capSock[slot];
+}
 
 extern int wtpInRunState;
 
@@ -376,22 +463,32 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 		setsockopt(gRawSock, SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv));
 	}
 	CW_REPEAT_FOREVER{
-		/* Follow the VAP across wifi restarts: addwlan does wifi down/up
-		 * which gives the VAP a new ifindex. Rebind if it changed. */
-		{
-			const char *_vap = CWWTPVapIfName();
-			unsigned int _cur = _vap ? if_nametoindex(_vap) : 0;
-			if (_cur != 0 && _cur != gMonIfIndex) {
-				struct sockaddr_ll _a; memset(&_a,0,sizeof(_a));
-				_a.sll_family = AF_PACKET; _a.sll_ifindex = _cur;
-				if (bind(gRawSock,(struct sockaddr*)&_a,sizeof(_a))==0) {
-					gMonIfIndex = _cur;
-					CWLog("[802.3] capture rebound to VAP %s ifindex %u", _vap, _cur);
-				}
-			}
-		}
+		/* Stage 2c (v2): poll across one bound capture socket per active VAP.
+		 * The frame's slot is the socket's slot (no ingress-ifindex demux). */
 		struct sockaddr_ll _rxsll; socklen_t _rxslen = sizeof(_rxsll);
-			n = recvfrom(gRawSock,buffer,sizeof(buffer),0,(struct sockaddr*)&_rxsll,&_rxslen);
+		int _capslot = -1;
+		{
+			struct pollfd _pfds[CW_MAX_CAP_SLOTS];
+			int _pslot[CW_MAX_CAP_SLOTS];
+			int _nfd = 0, _b, _ncap = WTP_MAX_INTERFACES * gRadiosInfo.radioCount;
+			for (_b = 0; _b < _ncap && _b < CW_MAX_CAP_SLOTS; _b++) {
+				int _fd = CWWTPCaptureSockForSlot(_b);
+				if (_fd >= 0) { _pfds[_nfd].fd = _fd; _pfds[_nfd].events = POLLIN; _pslot[_nfd] = _b; _nfd++; }
+			}
+			if (_nfd == 0) { sleep(1); continue; }
+			int _pr = poll(_pfds, _nfd, 1000);
+			if (_pr <= 0) continue;  /* timeout: re-evaluate active VAPs */
+			static int _rrStart = 0;   /* round-robin cursor for fairness across VAPs */
+			int _pi, _picked = -1, _k;
+			for (_k = 0; _k < _nfd; _k++) {
+				_pi = (_rrStart + _k) % _nfd;
+				if (_pfds[_pi].revents & POLLIN) { _picked = _pi; break; }
+			}
+			_rrStart = (_picked >= 0) ? (_picked + 1) % _nfd : 0;
+			if (_picked < 0) continue;
+			_capslot = _pslot[_picked];
+			n = recvfrom(_pfds[_picked].fd, buffer, sizeof(buffer), 0, (struct sockaddr*)&_rxsll, &_rxslen);
+		}
 
 		if(n<0){
 			/* timeout (SO_RCVTIMEO) or error: loop back so the
@@ -421,13 +518,16 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			 *   - drop frames whose SOURCE is multicast/broadcast
 			 *   - drop frames sourced by the AP's own VAP MAC
 			 *     (compare low 5 bytes; qca-wifi varies the first octet) */
+			/* Stage 2c (v2): the ingress slot is the poll socket's slot. */
+			int _slot = _capslot;
+			if (_slot < 0) continue;
 			{
 				unsigned char *_sa = (unsigned char *)buffer + 6;
 				if (_sa[0] & 0x01) continue;  /* mcast/bcast source */
-				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL &&
-				    WTPGlobalBSSList[0]->interfaceInfo != NULL &&
-				    WTPGlobalBSSList[0]->interfaceInfo->MACaddr != NULL &&
-				    memcmp(_sa + 1, WTPGlobalBSSList[0]->interfaceInfo->MACaddr + 1, ETH_ALEN - 1) == 0)
+				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[_slot] != NULL &&
+				    WTPGlobalBSSList[_slot]->interfaceInfo != NULL &&
+				    WTPGlobalBSSList[_slot]->interfaceInfo->MACaddr != NULL &&
+				    memcmp(_sa + 1, WTPGlobalBSSList[_slot]->interfaceInfo->MACaddr + 1, ETH_ALEN - 1) == 0)
 					continue;  /* AP's own frame */
 			}
 
@@ -436,15 +536,15 @@ CW_THREAD_RETURN_TYPE CWWTPReceiveFrame(void *arg){
 			/* Learn on first genuine ath1 uplink: record in the clean 802.3
 			 * client table (drives downlink fanout) and notify the AC via an
 			 * ADD event so it can route downlink to this client. */
-			if (g8023Learn((unsigned char *)buffer + 6)) {
-				int _rid = (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL && WTPGlobalBSSList[0]->phyInfo != NULL) ? WTPGlobalBSSList[0]->phyInfo->radioID : 0;
-				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[0] != NULL) {
-					WTPSTAInfo *_ns = addSTABySA(WTPGlobalBSSList[0], (unsigned char *)buffer + 6);
+			if (g8023Learn((unsigned char *)buffer + 6, _slot)) {
+				int _rid = (WTPGlobalBSSList != NULL && WTPGlobalBSSList[_slot] != NULL && WTPGlobalBSSList[_slot]->phyInfo != NULL) ? WTPGlobalBSSList[_slot]->phyInfo->radioID : 0;
+				if (WTPGlobalBSSList != NULL && WTPGlobalBSSList[_slot] != NULL) {
+					WTPSTAInfo *_ns = addSTABySA(WTPGlobalBSSList[_slot], (unsigned char *)buffer + 6);
 					if (_ns != NULL) _ns->state = CW_80211_STA_ASSOCIATION;
 				}
 				CWWTPEventRequestAddStation(_rid, (unsigned char *)buffer + 6);
-				CWLog("[802.3] learned client %02x:%02x:%02x:%02x:%02x:%02x, sent ADD to AC",
-					buffer[6],buffer[7],buffer[8],buffer[9],buffer[10],buffer[11]);
+				CWLog("[802.3] learned client %02x:%02x:%02x:%02x:%02x:%02x on slot %d, sent ADD to AC",
+					buffer[6],buffer[7],buffer[8],buffer[9],buffer[10],buffer[11], _slot);
 			}
 			CWProtocolMessage *f8023 = NULL;
 			CWBindingDataListElement *le8023 = NULL;
