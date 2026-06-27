@@ -2617,6 +2617,19 @@ CW_THREAD_RETURN_TYPE CWACReceiveDataChannel(void *arg) {
 			countPacketDataList = CWGetCountElementFromSafeList(gWTPs[i].packetReceiveDataList);
 			CWUnlockSafeList(gWTPs[i].packetReceiveDataList);
 			
+			/* Idle wait: if no data is pending, block on the list's condition
+			 * variable (100ms) instead of busy-spinning at 100% CPU. */
+			if (countPacketDataList == 0) {
+				CWThreadMutexLock(&gWTPs[i].interfaceMutex);
+				if (CWGetCountElementFromSafeList(gWTPs[i].packetReceiveDataList) == 0) {
+					struct timespec _wts;
+					clock_gettime(CLOCK_REALTIME, &_wts);
+					_wts.tv_nsec += 100000000;
+					if (_wts.tv_nsec >= 1000000000) { _wts.tv_sec++; _wts.tv_nsec -= 1000000000; }
+					pthread_cond_timedwait(&gWTPs[i].interfaceWait, &gWTPs[i].interfaceMutex, &_wts);
+				}
+				CWThreadMutexUnlock(&gWTPs[i].interfaceMutex);
+			}
 			if(countPacketDataList > 0) {
 				// ... li legge cifrati ... 
 	//			CWLog("+++ Thread DTLS Session Data. %s:%d, socket: %d. Ricevuto pacchetto dati.", inet_ntoa(tmpAdd->sin_addr), ntohs(tmpAdd->sin_port), dataSocket);

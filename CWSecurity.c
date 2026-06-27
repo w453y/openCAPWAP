@@ -37,6 +37,7 @@
 
  
 #include "CWCommon.h"
+#include <unistd.h>
 #include "CWAC.h"
 #include <openssl/pkcs12.h>
 #include <openssl/x509v3.h>
@@ -224,12 +225,23 @@ CWBool CWSecurityInitSessionClient(CWSocket sock,
 	{
 		int _hs_ret;
 		int _ssl_err;
+		int _hsWaits = 0;
 		do {
 			_hs_ret = SSL_do_handshake(*sessionPtr);
 			_ssl_err = SSL_get_error(*sessionPtr, _hs_ret);
-			CWLog("SSL_do_handshake returned %d, ssl_err=%d", _hs_ret, _ssl_err);
 			if (_hs_ret <= 0 && (_ssl_err == SSL_ERROR_WANT_READ || (_ssl_err == SSL_ERROR_SYSCALL && errno == 0))) {
-				CWLog("DTLS: waiting for next handshake message... errno=%d", errno);
+				/* Don't busy-spin: the next handshake datagram is delivered by the
+				 * receive thread into the packet list. Wait briefly (2ms) and retry,
+				 * with a 15s overall deadline so a stalled handshake tears down
+				 * cleanly instead of pegging the CPU and holding the port. */
+				if (++_hsWaits > 7500) {
+					CWLog("DTLS handshake deadline (15s) exceeded, aborting");
+					_hs_ret = -1;
+					break;
+				}
+				if ((_hsWaits % 500) == 1)
+					CWLog("DTLS: waiting for handshake message (%d ms)...", _hsWaits * 2);
+				usleep(2000);
 				continue;
 			}
 			break;
@@ -372,12 +384,23 @@ CWBool CWSecurityInitSessionServer(CWWTPManager* pWtp,
 	{
 		int _hs_ret;
 		int _ssl_err;
+		int _hsWaits = 0;
 		do {
 			_hs_ret = SSL_do_handshake(*sessionPtr);
 			_ssl_err = SSL_get_error(*sessionPtr, _hs_ret);
-			CWLog("SSL_do_handshake returned %d, ssl_err=%d", _hs_ret, _ssl_err);
 			if (_hs_ret <= 0 && (_ssl_err == SSL_ERROR_WANT_READ || (_ssl_err == SSL_ERROR_SYSCALL && errno == 0))) {
-				CWLog("DTLS: waiting for next handshake message... errno=%d", errno);
+				/* Don't busy-spin: the next handshake datagram is delivered by the
+				 * receive thread into the packet list. Wait briefly (2ms) and retry,
+				 * with a 15s overall deadline so a stalled handshake tears down
+				 * cleanly instead of pegging the CPU and holding the port. */
+				if (++_hsWaits > 7500) {
+					CWLog("DTLS handshake deadline (15s) exceeded, aborting");
+					_hs_ret = -1;
+					break;
+				}
+				if ((_hsWaits % 500) == 1)
+					CWLog("DTLS: waiting for handshake message (%d ms)...", _hsWaits * 2);
+				usleep(2000);
 				continue;
 			}
 			break;
@@ -468,12 +491,23 @@ CWBool CWSecurityInitSessionServerDataChannel(CWWTPManager* pWtp,
 	{
 		int _hs_ret;
 		int _ssl_err;
+		int _hsWaits = 0;
 		do {
 			_hs_ret = SSL_do_handshake(*sessionPtr);
 			_ssl_err = SSL_get_error(*sessionPtr, _hs_ret);
-			CWLog("SSL_do_handshake returned %d, ssl_err=%d", _hs_ret, _ssl_err);
 			if (_hs_ret <= 0 && (_ssl_err == SSL_ERROR_WANT_READ || (_ssl_err == SSL_ERROR_SYSCALL && errno == 0))) {
-				CWLog("DTLS: waiting for next handshake message... errno=%d", errno);
+				/* Don't busy-spin: the next handshake datagram is delivered by the
+				 * receive thread into the packet list. Wait briefly (2ms) and retry,
+				 * with a 15s overall deadline so a stalled handshake tears down
+				 * cleanly instead of pegging the CPU and holding the port. */
+				if (++_hsWaits > 7500) {
+					CWLog("DTLS handshake deadline (15s) exceeded, aborting");
+					_hs_ret = -1;
+					break;
+				}
+				if ((_hsWaits % 500) == 1)
+					CWLog("DTLS: waiting for handshake message (%d ms)...", _hsWaits * 2);
+				usleep(2000);
 				continue;
 			}
 			break;
@@ -564,12 +598,23 @@ CWBool CWSecurityInitGenericSessionServerDataChannel(CWSafeList packetDataList,
 	{
 		int _hs_ret;
 		int _ssl_err;
+		int _hsWaits = 0;
 		do {
 			_hs_ret = SSL_do_handshake(*sessionPtr);
 			_ssl_err = SSL_get_error(*sessionPtr, _hs_ret);
-			CWLog("SSL_do_handshake returned %d, ssl_err=%d", _hs_ret, _ssl_err);
 			if (_hs_ret <= 0 && (_ssl_err == SSL_ERROR_WANT_READ || (_ssl_err == SSL_ERROR_SYSCALL && errno == 0))) {
-				CWLog("DTLS: waiting for next handshake message... errno=%d", errno);
+				/* Don't busy-spin: the next handshake datagram is delivered by the
+				 * receive thread into the packet list. Wait briefly (2ms) and retry,
+				 * with a 15s overall deadline so a stalled handshake tears down
+				 * cleanly instead of pegging the CPU and holding the port. */
+				if (++_hsWaits > 7500) {
+					CWLog("DTLS handshake deadline (15s) exceeded, aborting");
+					_hs_ret = -1;
+					break;
+				}
+				if ((_hsWaits % 500) == 1)
+					CWLog("DTLS: waiting for handshake message (%d ms)...", _hsWaits * 2);
+				usleep(2000);
 				continue;
 			}
 			break;

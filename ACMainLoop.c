@@ -1,4 +1,5 @@
 #include <setjmp.h>
+#include <unistd.h>
 /************************************************************************************************
  * Copyright (c) 2006-2009 Laboratorio di Sistemi di Elaborazione e Bioingegneria Informatica	*
  *                          Universita' Campus BioMedico - Italy								*
@@ -1484,6 +1485,7 @@ CW_THREAD_RETURN_TYPE CWGenericWTPDataHandshake(void *arg) {
 	}
 	
 	/* Leggo i dati dalla packetList e li riscrivo decifrati */	
+	int _recvFailStreak = 0;
 	CW_REPEAT_FOREVER {
 		countPacketDataList=0;
 	
@@ -1492,17 +1494,47 @@ CW_THREAD_RETURN_TYPE CWGenericWTPDataHandshake(void *arg) {
 		CWLockSafeList(argInputThread->packetDataList);
 		countPacketDataList = CWGetCountElementFromSafeList(argInputThread->packetDataList);
 		CWUnlockSafeList(argInputThread->packetDataList);
+		/* Idle wait: if no data is pending, block on the list's condition variable
+		 * (100ms) instead of busy-spinning the loop at 100% CPU. */
+		if (countPacketDataList == 0) {
+			CWThreadMutexLock(&argInputThread->interfaceMutex);
+			if (CWGetCountElementFromSafeList(argInputThread->packetDataList) == 0) {
+				struct timespec _wts;
+				clock_gettime(CLOCK_REALTIME, &_wts);
+				_wts.tv_nsec += 100000000;
+				if (_wts.tv_nsec >= 1000000000) { _wts.tv_sec++; _wts.tv_nsec -= 1000000000; }
+				pthread_cond_timedwait(&argInputThread->interfaceWait, &argInputThread->interfaceMutex, &_wts);
+			}
+			CWThreadMutexUnlock(&argInputThread->interfaceMutex);
+			continue;
+		}
 		if(countPacketDataList > 0) {
 			// ... li legge cifrati ... 
 			if(!CWErr(CWSecurityReceive(sessionDataGeneric,
 										buf,
 										CW_BUFFER_SIZE - 1,
 										&readBytes)))
-			{		
+			{
 				CWDebugLog("Error during security receive");
 				CWThreadSetSignals(SIG_UNBLOCK, 1, CW_SOFT_TIMER_EXPIRED_SIGNAL);
+				/* Drain the head packet so a bad/undecryptable datagram (data
+				 * session NULL/dead after a WTP re-handshake) cannot make this
+				 * loop spin at 100% CPU on the same data. Back off; log once/sec. */
+				{
+					int _dlen = 0;
+					CWLockSafeList(argInputThread->packetDataList);
+					if (CWGetCountElementFromSafeList(argInputThread->packetDataList) > 0) {
+						void *_drop = CWRemoveHeadElementFromSafeList(argInputThread->packetDataList, &_dlen);
+						if (_drop) CW_FREE_OBJECT(_drop);
+					}
+					CWUnlockSafeList(argInputThread->packetDataList);
+				}
+				if ((++_recvFailStreak % 500) == 1)
+					CWLog("Data channel: %d consecutive decrypt failures (session likely dead)", _recvFailStreak);
+				usleep(2000);
 				continue;
 			}
+			_recvFailStreak = 0;
 			
 			/* Se e un keepalive associo il canale dati a quello di controllo */
 			
