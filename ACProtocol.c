@@ -984,6 +984,7 @@ CWBool CWParseWTPDeleteStation (CWProtocolMessage *msgPtr, int len, CWMsgElemDat
 	CWParseMessageElementStart();
 	int length=0;
 	valPtr->radioID = CWProtocolRetrieve8(msgPtr);
+	valPtr->wlanID = CWProtocolRetrieve8(msgPtr);
 	length=CWProtocolRetrieve8(msgPtr);
 	CW_COPY_MEMORY(valPtr->staAddr, CWProtocolRetrieveRawBytes(msgPtr, length), ETH_ALEN);
 	

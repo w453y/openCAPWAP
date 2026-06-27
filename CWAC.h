@@ -190,6 +190,7 @@ typedef struct {
 	char tap_name[IFNAMSIZ];
 	int tap_fd;
 int vlan; /* Stage 1: per-WTP SSID VLAN tag (0 = untagged) */
+int wlanVlan[8]; /* Stage 2c-2: per-WLAN VLAN, indexed by wlanID */
 	
 	// IEEE 802.11
 	char RadioInformationABGN;

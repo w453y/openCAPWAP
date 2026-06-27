@@ -117,7 +117,9 @@ int CWWLANSetValues(int selection, int socketIndex, WUMWLANCmdParameters * cmdWL
 	/* Set command directly without blocking on interfaceMutex */
 	gWTPs[selection].cmdWLAN = cmdWLAN;
 	gWTPs[selection].vlan = cmdWLAN->vlan;
-	CWLog("[VLAN] WTP slot %d -> vlan %d", selection, cmdWLAN->vlan);
+	if (cmdWLAN->wlanID >= 0 && cmdWLAN->wlanID < 8)
+		gWTPs[selection].wlanVlan[cmdWLAN->wlanID] = cmdWLAN->vlan;
+	CWLog("[VLAN] WTP slot %d wlanID %d -> vlan %d", selection, cmdWLAN->wlanID, cmdWLAN->vlan);
 	gWTPs[selection].applicationIndex = socketIndex;
 	__sync_synchronize(); /* memory barrier */
 	gWTPs[selection].interfaceCommand = IEEE_WLAN_CONFIGURATION_CMD;

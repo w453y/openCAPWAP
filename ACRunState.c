@@ -1373,15 +1373,26 @@ CWLog("Prima di CWACSendAcknowledgedPacket");
 			 * consistent and the teardown does not corrupt the tree. */
 			if(valuesPtr.WTPStaAddInfo != NULL && valuesPtr.WTPStaAddInfo->staAddr != NULL) {
 				CWThreadMutexLock(&mutexAvlTree);
+				int _wid = valuesPtr.WTPStaAddInfo->wlanID;
+				int _wvlan = (_wid >= 0 && _wid < 8) ? gWTPs[WTPIndex].wlanVlan[_wid] : gWTPs[WTPIndex].vlan;
 				if(AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree) == NULL) {
 					unsigned char _bssid[ETH_ALEN]; memset(_bssid,0,ETH_ALEN);
 					avlTree = AVLinsert(WTPIndex, valuesPtr.WTPStaAddInfo->staAddr,
 					                    _bssid, valuesPtr.WTPStaAddInfo->radioID, avlTree);
 					CWLog("[UL-LEARN] AC learned STA from WTP ADD event WTPIndex=%d radioID=%d",
 					      WTPIndex, valuesPtr.WTPStaAddInfo->radioID);
-						nodeAVL *_vn = AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree);
-						if (_vn != NULL) { _vn->vlan = gWTPs[WTPIndex].vlan;
-							CWLog("[VLAN-MAP] STA learned -> vlan %d (WTP %d)", gWTPs[WTPIndex].vlan, WTPIndex); }
+					nodeAVL *_vn = AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree);
+					if (_vn != NULL) {
+						_vn->vlan = _wvlan;
+						CWLog("[VLAN-MAP] STA learned -> vlan %d (WTP %d wlanID %d)", _wvlan, WTPIndex, _wid); }
+				} else {
+					/* Roam: MAC already known (moved between WLANs/VAPs). Re-stamp its
+					 * per-MAC VLAN from the new wlanID so it follows the new SSID. */
+					nodeAVL *_vn = AVLfind(valuesPtr.WTPStaAddInfo->staAddr, avlTree);
+					if (_vn != NULL && _vn->vlan != _wvlan) {
+						_vn->vlan = _wvlan;
+						CWLog("[VLAN-MAP] STA roamed -> vlan %d (WTP %d wlanID %d)", _wvlan, WTPIndex, _wid);
+					}
 				}
 				CWThreadMutexUnlock(&mutexAvlTree);
 			}
