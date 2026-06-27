@@ -74,7 +74,7 @@ extern struct nl80211SocketUnit globalNLSock;
 //Max num WTP radio interface
 #define WTP_RADIO_MAX 5
 //Max num WTP interface for each radio
-#define WTP_MAX_INTERFACES 1
+#define WTP_MAX_INTERFACES 2
 //Max num STA for each interface
 #define WTP_MAX_STA 16
 

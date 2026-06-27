@@ -194,7 +194,7 @@ CWBool CWWTPCreateNewWlanInterface(int radioIndex, int wlanIndex)//WTPInterfaceI
 }
 
 int getBSSIndex(int radioID, int wlanID) {
-	return radioID + wlanID;
+	return radioID * WTP_MAX_INTERFACES + wlanID;
 }
 
 CWBool CWWTPCreateNewBSS(int radioIndex, int wlanIndex)
@@ -259,35 +259,143 @@ CWBool CWWTPDeleteBSS(int radioIndex, int wlanIndex)
 	return CW_TRUE;
 }
 
+/* Discover the real driver-assigned VAP ifname by matching the SSID we just
+ * configured. qca-wifi names extra VAPs unpredictably (the 2nd VAP on wifi1 is
+ * "ath11", not "ath2") and ignores uci ifname pinning, so we cannot assume the
+ * name. One-shot shell discovery (pragmatic; netlink GET_INTERFACE later). */
+static CWBool CWWTPDiscoverIfnameBySSID(const char *ssid, char *out, int outlen) {
+	char cmd[300], line[128];
+	if (ssid == NULL || out == NULL) return CW_FALSE;
+	snprintf(cmd, sizeof(cmd),
+		"for i in $(iw dev 2>/dev/null | awk '/Interface/{print $2}'); do "
+		"s=$(iw dev \"$i\" info 2>/dev/null | sed -n 's/^\\tssid //p'); "
+		"[ \"$s\" = \"%s\" ] && { printf '%%s' \"$i\"; break; }; done", ssid);
+	FILE *fp = popen(cmd, "r");
+	if (!fp) return CW_FALSE;
+	CWBool ok = CW_FALSE;
+	if (fgets(line, sizeof(line), fp)) {
+		line[strcspn(line, "\r\n")] = 0;
+		if (line[0]) { strncpy(out, line, outlen-1); out[outlen-1] = 0; ok = CW_TRUE; }
+	}
+	pclose(fp);
+	return ok;
+}
+
 CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * interfaceInfo)
-{   
-	/* qca-wifi: even if already AP mode, still configure SSID via nl80211CmdStartAP */
-	/* was: return CW_TRUE; */
-	
+{
 	if(interfaceInfo == NULL)
 		return CW_FALSE;
-		
-	/* qca-wifi: skip SetInterfaceAPType - ath1 already AP, nl80211 rejects mode change */
-	/* 		return CW_FALSE; */
+
+	/* --- Stage 2b: create the VAP via uci/netifd FIRST, then discover its real
+	 * name, BEFORE any nl80211 AP-config or mgmt registration runs. The driver
+	 * owns VAP creation (like ath1 from the base config); we adopt the result. */
+	{
+		char cmd[512];
+		int _sec = wlanIndex + 1;   /* [0]=5GHz OpenWrt AP; CAPWAP WLANs at [1],[2],... */
+		/* TODO(AC-driven radio): device should come from the AC per-SSID, not hardcoded wifi1 */
+		snprintf(cmd, sizeof(cmd),
+			"uci -q get wireless.@wifi-iface[%d] >/dev/null 2>&1 || "
+			"{ uci add wireless wifi-iface; "
+			"uci set wireless.@wifi-iface[-1].device='wifi1'; "
+			"uci set wireless.@wifi-iface[-1].mode='ap'; "
+			"uci set wireless.@wifi-iface[-1].network='lan'; "
+			"uci set wireless.@wifi-iface[-1].encryption='none'; }", _sec);
+		system(cmd);
+		snprintf(cmd, sizeof(cmd),
+			"uci set wireless.@wifi-iface[%d].ssid='%s' && uci commit wireless && wifi down && wifi up",
+			_sec, interfaceInfo->SSID);
+		CWLog("[qca-wifi] wlanIndex=%d -> wifi-iface[%d] SSID=%s", wlanIndex, _sec, interfaceInfo->SSID);
+		system(cmd);
+		sleep(3);
+	}
+
+	/* Discover the real ifname the driver assigned to our SSID and adopt it. */
+	{
+		char _real[IFNAMSIZ];
+		if (CWWTPDiscoverIfnameBySSID(interfaceInfo->SSID, _real, sizeof(_real))) {
+			if (interfaceInfo->ifName == NULL ||
+			    strncmp(interfaceInfo->ifName, _real, IFNAMSIZ) != 0) {
+				CWLog("[qca-wifi] discovered ifname %s for SSID %s (was %s)",
+				      _real, interfaceInfo->SSID,
+				      interfaceInfo->ifName ? interfaceInfo->ifName : "(null)");
+				if (interfaceInfo->ifName == NULL)
+					CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->ifName, IFNAMSIZ+1, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+				strncpy(interfaceInfo->ifName, _real, IFNAMSIZ);
+				interfaceInfo->ifName[IFNAMSIZ] = 0;
+			}
+		} else {
+			CWLog("[qca-wifi] WARN: no ifname found for SSID %s; keeping %s",
+			      interfaceInfo->SSID, interfaceInfo->ifName ? interfaceInfo->ifName : "(null)");
+		}
+	}
+
+	/* netifd's "wifi up" asynchronously (re)creates VAPs, so the ifindex can
+	 * still be churning right after the command returns. Poll until it is stable
+	 * (same nonzero value three reads in a row) before doing anything that binds
+	 * to the ifindex. */
+	{
+		/* Keep this SHORT - this runs in the WTP control thread; blocking too
+		 * long starves CAPWAP keepalives and the AC declares the data channel
+		 * dead. The ifindex settles within ~1s of "wifi up" in practice. */
+		unsigned int _prev = 0, _cur = 0;
+		int _stable = 0, _tries = 0;
+		while (_tries++ < 5) {             /* up to ~1.5s */
+			_cur = if_nametoindex(interfaceInfo->ifName);
+			if (_cur != 0 && _cur == _prev) {
+				if (++_stable >= 1) break;
+			} else {
+				_stable = 0;
+			}
+			_prev = _cur;
+			usleep(300000);
+		}
+		CWLog("[qca-wifi] %s settled at ifindex=%u (stable=%d tries=%d)",
+		      interfaceInfo->ifName, _cur, _stable, _tries);
+	}
+
+	/* CRITICAL: detach the VAP from netifd's LAN bridge BEFORE registering mgmt
+	 * frames. "wifi up" enslaves the VAP to br-lan; NL80211_CMD_REGISTER_FRAME
+	 * fails on a bridged, netifd-managed interface. For split-MAC tunneling the
+	 * VAP must be standalone anyway (only our CAPWAP capture consumes its frames).
+	 * Bridge name resolved at runtime via CWGetBridge, nothing hardcoded. */
+	{
+		char _brname[IFNAMSIZ];
+		int _retries = 0;
+		int _brsock = socket(AF_INET, SOCK_STREAM, 0);
+		while (_retries++ < 10) {
+			if (CWGetBridge(_brname, interfaceInfo->ifName) == CW_TRUE) {
+				unsigned int _vapidx = if_nametoindex(interfaceInfo->ifName);
+				if (CWDelBridgeInterface(_brsock, _brname, _vapidx) == CW_TRUE)
+					CWLog("[802.3] detached VAP %s from bridge %s (split-MAC tunnel)", interfaceInfo->ifName, _brname);
+				break;
+			}
+			usleep(300000);
+		}
+		if (_brsock >= 0) close(_brsock);
+	}
+
+	/* Re-resolve ifindex + MAC from the REAL interface (now settled & standalone). */
+	interfaceInfo->realWlanID = if_nametoindex(interfaceInfo->ifName);
+	if (interfaceInfo->MACaddr == NULL)
+		CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->MACaddr, MAC_ADDR_LEN, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	getInterfaceMacAddr(interfaceInfo->ifName, interfaceInfo->MACaddr);
 
 	//BSSID == AP Address
-	CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->BSSID, ETH_ALEN+1, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
+	if (interfaceInfo->BSSID == NULL)
+		CW_CREATE_ARRAY_CALLOC_ERR(interfaceInfo->BSSID, ETH_ALEN+1, char, return CWErrorRaise(CW_ERROR_OUT_OF_MEMORY, NULL););
 	CW_COPY_MEMORY(interfaceInfo->BSSID, interfaceInfo->MACaddr, ETH_ALEN);
 
 	/* qca-wifi: skip channel/AP config for reused NSS-registered interfaces */
 	if(interfaceInfo->realWlanID == 0) {
-	if(!nl80211CmdSetChannelInterface(interfaceInfo->ifName, gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.phyFrequencyInfo.frequencyList[CW_WTP_DEFAULT_RADIO_CHANNEL].frequency))
-		return CW_FALSE;
-
-	if(!nl80211_get_channel_width(interfaceInfo->ifName))
-		return CW_FALSE;
-		
-	if(!ioctlActivateInterface(interfaceInfo->ifName))
-		return CW_FALSE;
-
-	if(!nl80211CmdStartAP(interfaceInfo))
-		return CW_FALSE;
-	} /* end qca-wifi skip block */
+		if(!nl80211CmdSetChannelInterface(interfaceInfo->ifName, gRadiosInfo.radiosInfo[radioIndex].gWTPPhyInfo.phyFrequencyInfo.frequencyList[CW_WTP_DEFAULT_RADIO_CHANNEL].frequency))
+			return CW_FALSE;
+		if(!nl80211_get_channel_width(interfaceInfo->ifName))
+			return CW_FALSE;
+		if(!ioctlActivateInterface(interfaceInfo->ifName))
+			return CW_FALSE;
+		if(!nl80211CmdStartAP(interfaceInfo))
+			return CW_FALSE;
+	}
 
 	int tmpIndexif = if_nametoindex(interfaceInfo->ifName);
 	CWLog("[DBG] calling netlink_send_oper_ifla ifindex=%d", tmpIndexif);
@@ -295,70 +403,34 @@ CWBool CWWTPSetAPInterface(int radioIndex, int wlanIndex, WTPInterfaceInfo * int
 		CWLog("[DBG] netlink_send_oper_ifla FAILED");
 		return CW_FALSE;
 	}
-			
-	  
+
 	CWLog("[DBG] calling nl80211_set_bss");
 	if(!nl80211_set_bss(interfaceInfo, radioIndex, 0, 0)) {
 		CWLog("[DBG] nl80211_set_bss FAILED");
 		return CW_FALSE;
 	}
-	 
-	/* int tmpChannel = -1;
-	 nl80211CmdGetChannelInterface(interfaceInfo->ifName, &(tmpChannel));
-	 CWLog("GET CHANNEL: %d", tmpChannel);
-	 */
-	//Setta nuova BSS
+
 	int BSSId = getBSSIndex(radioIndex, wlanIndex);
 	WTPGlobalBSSList[BSSId]->active = CW_TRUE;
-	
+
 	//Register mgmt functions
 	CWLog("[DBG] calling CW80211SetAPTypeFrame");
 	if(CW80211SetAPTypeFrame(interfaceInfo, WTPGlobalBSSList[BSSId]) < 0) {
 		CWLog("[DBG] CW80211SetAPTypeFrame FAILED");
 		return CW_FALSE;
 	}
-	
-	CWLog("AP created on interface on interface %s", interfaceInfo->ifName);
-	/* qca-wifi: set SSID via UCI and restart wifi to restore NSS registration */
-	{
-		char cmd[256];
-		snprintf(cmd, sizeof(cmd), "uci set wireless.@wifi-iface[1].ssid='%s' && uci commit wireless && wifi down && wifi up", interfaceInfo->SSID);
-		CWLog("[qca-wifi] Restarting wifi with SSID: %s", interfaceInfo->SSID);
-		system(cmd);
-		sleep(3);
-		/* netifd's "wifi up" re-bridges the VAP into the LAN bridge
-		 * (local-MAC wiring). For split-MAC data tunneling the VAP
-		 * must be standalone so only our CAPWAP capture consumes its
-		 * frames. Detach from whatever bridge it landed in - bridge
-		 * name resolved at runtime via CWGetBridge, nothing hardcoded. */
-		{
-			char _brname[IFNAMSIZ];
-			int _retries = 0;
-			int _brsock = socket(AF_INET, SOCK_STREAM, 0);
-			while (_retries++ < 10) {
-				if (CWGetBridge(_brname, interfaceInfo->ifName) == CW_TRUE) {
-					unsigned int _vapidx = if_nametoindex(interfaceInfo->ifName);
-					if (CWDelBridgeInterface(_brsock, _brname, _vapidx) == CW_TRUE)
-						CWLog("[802.3] detached VAP %s from bridge %s (split-MAC tunnel)", interfaceInfo->ifName, _brname);
-					break;
-				}
-				usleep(300000);
-			}
-			if (_brsock >= 0) close(_brsock);
-		}
-	}
 
-	
+	CWLog("AP created on interface %s", interfaceInfo->ifName);
+
 	interfaceInfo->typeInterface = CW_AP_MODE;
 
 	if(!CWErr(CWCreateThread(&(WTPGlobalBSSList[BSSId]->threadBSS), CWWTPBSSManagement, WTPGlobalBSSList[BSSId]))) {
 		CWLog("Error starting Thread that receive binding frame");
 		exit(1);
 	}
-	
+
 	return CW_TRUE;
 }
-
 CWBool CWWTPDeleteWLANAPInterface(int radioIndex, int wlanIndex)
 {
 	/*

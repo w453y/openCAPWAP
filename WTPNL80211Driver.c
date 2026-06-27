@@ -925,8 +925,12 @@ int nl80211_register_spurious_class3(WTPInterfaceInfo * interfaceInfo)
 	ret = send_and_recv(&(globalNLSock), interfaceInfo->nl_mgmt, msg, NULL, NULL);
 	
 	msg = NULL;
-	if (ret == -114) {
-		CWLog("nl80211: spurious class3 already registered (EALREADY), continuing");
+	if (ret == -114 || ret == -16) {
+		/* -114 EALREADY / -16 EBUSY: hostapd (qca-wifi managed AP) already owns the
+		 * unexpected-frame reporting on this VAP. Not fatal for split-MAC: the 7 mgmt
+		 * frame types are already registered and our 802.3 capture does not depend on
+		 * class3 reporting. Tolerate and continue. */
+		CWLog("nl80211: spurious class3 already owned (ret=%d), continuing", ret);
 		ret = 0;
 	} else if (ret) {
 		CWLog("nl80211: Register spurious class3 failed: ret=%d (%s)", ret, strerror(-ret));
